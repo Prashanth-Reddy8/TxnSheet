@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">TxnSheet</string>
+    <string name="notification_access_label">TxnSheet transaction capture</string>
+    <string name="privacy_summary">Selected transaction notifications are parsed on this phone. Only normalized ledger fields are sent to your Google Sheet.</string>
+</resources>
+
