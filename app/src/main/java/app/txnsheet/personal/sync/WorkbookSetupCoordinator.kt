@@ -239,7 +239,11 @@ class WorkbookSetupCoordinator(
             WorkbookSetupOutcome.Error("AUTH_REQUIRED", false)
         } else {
             WorkbookSetupOutcome.Error(
-                code = "SHEETS_HTTP_${error.statusCode}",
+                code = listOfNotNull(
+                    "SHEETS_HTTP_${error.statusCode}",
+                    error.apiStatus?.takeIf(String::isNotBlank),
+                    error.apiReason?.takeIf(String::isNotBlank),
+                ).joinToString("_").take(96),
                 isTransient = error.isTransient,
             )
         }

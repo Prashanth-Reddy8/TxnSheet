@@ -37,9 +37,7 @@ class GoogleSheetsHttpGateway(
             .put(
                 "properties",
                 JSONObject()
-                    .put("title", request.title.ifBlank { "TxnSheet Ledger" })
-                    .put("timeZone", request.timezone)
-                    .put("locale", "en_IN"),
+                    .put("title", request.title.ifBlank { "TxnSheet Ledger" }),
             )
             .put(
                 "sheets",
@@ -48,6 +46,12 @@ class GoogleSheetsHttpGateway(
                     .put(sheetDefinition(TransactionSheetContract.DASHBOARD_TAB, 100, 8, 0))
                     .put(sheetDefinition(TransactionSheetContract.CONFIG_TAB, 30, 2, 1)),
             )
+
+        // Do not force locale or timeZone during creation. Sheets supports only a subset of
+        // CLDR/locale identifiers and rejects the entire create request with HTTP 400 when a
+        // device-provided alias is not accepted. The owner's Google account supplies safe
+        // defaults; TxnSheet still stores its explicit timezone in Config and uses it for every
+        // transaction date conversion.
 
         val created = executeJson(
             request = authorizedRequest(

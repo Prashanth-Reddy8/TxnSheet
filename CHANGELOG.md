@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1-alpha.2 - 2026-08-26
+
+- Fixed Google Sheets creation failing with `SHEETS_HTTP_400` on device locale or
+  timezone identifiers that the Sheets API does not accept during spreadsheet creation.
+- Improved safe Google API error codes for future setup diagnosis.
+
 ## 1.0.0-alpha.1 - 2026-08-26
 
 First Nothing Phone (1) device-test prerelease.
