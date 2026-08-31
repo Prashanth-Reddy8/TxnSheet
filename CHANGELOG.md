@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2-alpha.3 - 2026-09-01
+
+- Changed workbook setup to Google's documented minimal create request followed by an
+  atomic structural batch update for the Transactions, Dashboard, and Config tabs.
+- Added actionable messages for missing accounts, network failures, OAuth identity
+  mismatches, denied consent, and missing `drive.file` permission.
+
 ## 1.0.1-alpha.2 - 2026-08-26
 
 - Fixed Google Sheets creation failing with `SHEETS_HTTP_400` on device locale or

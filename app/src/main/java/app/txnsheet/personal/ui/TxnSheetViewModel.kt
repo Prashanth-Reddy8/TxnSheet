@@ -386,6 +386,15 @@ class TxnSheetViewModel(application: Application) : AndroidViewModel(application
 
     private fun workbookErrorMessage(code: String): String = when {
         code == "GOOGLE_AUTH_CANCELLED" -> "Google connection was cancelled."
+        code == "GOOGLE_AUTH_4" -> "Add a Google account to this phone, then try again."
+        code == "GOOGLE_AUTH_7" || code == "GOOGLE_AUTH_NETWORK" ->
+            "Google could not connect. Check the network and try again."
+        code == "GOOGLE_AUTH_10" ->
+            "This APK does not match its Google OAuth registration. Install the latest update."
+        code == "GOOGLE_AUTH_16" ->
+            "Google access was cancelled or denied. Select the approved test account and allow access."
+        code == "DRIVE_FILE_SCOPE_NOT_GRANTED" ->
+            "Google did not grant file access. Reconnect and approve the requested permission."
         code == "SPREADSHEET_ID_INVALID" -> "Enter a valid Google Sheets URL or spreadsheet ID."
         code.startsWith("SCHEMA_") -> "That spreadsheet does not match the protected TxnSheet schema."
         code == "AUTH_REQUIRED" -> "Google permission needs to be granted again."

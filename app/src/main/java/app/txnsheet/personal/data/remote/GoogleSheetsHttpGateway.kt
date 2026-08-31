@@ -33,25 +33,15 @@ class GoogleSheetsHttpGateway(
         token: EphemeralAccessToken,
         request: WorkbookCreationRequest,
     ): WorkbookDescriptor {
+        // Keep spreadsheets.create deliberately minimal. Google documents title-only creation as
+        // the portable path; account locale, timezone aliases, and compound initial sheet
+        // definitions can otherwise make the whole request fail with HTTP 400.
         val createBody = JSONObject()
             .put(
                 "properties",
                 JSONObject()
                     .put("title", request.title.ifBlank { "TxnSheet Ledger" }),
             )
-            .put(
-                "sheets",
-                JSONArray()
-                    .put(sheetDefinition(TransactionSheetContract.TRANSACTIONS_TAB, 2_000, 18, 1))
-                    .put(sheetDefinition(TransactionSheetContract.DASHBOARD_TAB, 100, 8, 0))
-                    .put(sheetDefinition(TransactionSheetContract.CONFIG_TAB, 30, 2, 1)),
-            )
-
-        // Do not force locale or timeZone during creation. Sheets supports only a subset of
-        // CLDR/locale identifiers and rejects the entire create request with HTTP 400 when a
-        // device-provided alias is not accepted. The owner's Google account supplies safe
-        // defaults; TxnSheet still stores its explicit timezone in Config and uses it for every
-        // transaction date conversion.
 
         val created = executeJson(
             request = authorizedRequest(
@@ -59,7 +49,17 @@ class GoogleSheetsHttpGateway(
                 token = token,
             ).post(createBody.toString().toRequestBody(JSON_MEDIA_TYPE)).build(),
         )
-        val descriptor = descriptorFrom(created)
+        val spreadsheetId = created.optString("spreadsheetId").takeIf(String::isNotBlank)
+            ?: throw SheetsProtocolException("SPREADSHEET_ID_MISSING")
+        val defaultSheetId = created.optJSONArray("sheets")
+            ?.optJSONObject(0)
+            ?.optJSONObject("properties")
+            ?.optInt("sheetId", Int.MIN_VALUE)
+            ?.takeUnless { it == Int.MIN_VALUE }
+            ?: throw SheetsProtocolException("DEFAULT_SHEET_MISSING")
+
+        initializeStructure(token, spreadsheetId, defaultSheetId)
+        val descriptor = inspectWorkbook(token, spreadsheetId)
 
         initializeValues(token, descriptor, request)
         initializeFormatting(token, descriptor)
@@ -71,6 +71,52 @@ class GoogleSheetsHttpGateway(
             )
         }
         return descriptor
+    }
+
+    private suspend fun initializeStructure(
+        token: EphemeralAccessToken,
+        spreadsheetId: String,
+        defaultSheetId: Int,
+    ) {
+        val requests = JSONArray()
+            .put(
+                JSONObject().put(
+                    "updateSheetProperties",
+                    JSONObject()
+                        .put(
+                            "properties",
+                            sheetProperties(
+                                TransactionSheetContract.TRANSACTIONS_TAB,
+                                rows = 2_000,
+                                columns = 18,
+                                frozenRows = 1,
+                            ).put("sheetId", defaultSheetId),
+                        )
+                        .put(
+                            "fields",
+                            "title,gridProperties(rowCount,columnCount,frozenRowCount)",
+                        ),
+                ),
+            )
+            .put(
+                JSONObject().put(
+                    "addSheet",
+                    sheetDefinition(TransactionSheetContract.DASHBOARD_TAB, 100, 8, 0),
+                ),
+            )
+            .put(
+                JSONObject().put(
+                    "addSheet",
+                    sheetDefinition(TransactionSheetContract.CONFIG_TAB, 30, 2, 1),
+                ),
+            )
+        executeJson(
+            authorizedRequest(endpoint(spreadsheetId, ":batchUpdate"), token)
+                .post(
+                    JSONObject().put("requests", requests).toString().toRequestBody(JSON_MEDIA_TYPE),
+                )
+                .build(),
+        )
     }
 
     override suspend fun inspectWorkbook(
@@ -371,16 +417,23 @@ class GoogleSheetsHttpGateway(
         frozenRows: Int,
     ): JSONObject = JSONObject().put(
         "properties",
-        JSONObject()
-            .put("title", title)
-            .put(
-                "gridProperties",
-                JSONObject()
-                    .put("rowCount", rows)
-                    .put("columnCount", columns)
-                    .put("frozenRowCount", frozenRows),
-            ),
+        sheetProperties(title, rows, columns, frozenRows),
     )
+
+    private fun sheetProperties(
+        title: String,
+        rows: Int,
+        columns: Int,
+        frozenRows: Int,
+    ): JSONObject = JSONObject()
+        .put("title", title)
+        .put(
+            "gridProperties",
+            JSONObject()
+                .put("rowCount", rows)
+                .put("columnCount", columns)
+                .put("frozenRowCount", frozenRows),
+        )
 
     private fun rowsBody(rows: List<List<Any>>): JSONObject = JSONObject()
         .put("majorDimension", "ROWS")
