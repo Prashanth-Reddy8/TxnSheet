@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3-alpha.4 - 2026-09-01
+
+- Discover notification source apps from notifications already visible when Android connects
+  TxnSheet's listener, without reading their text before the owner enables the source.
+- Fixed the empty source-picker dead end after notification access was granted.
+
 ## 1.0.2-alpha.3 - 2026-09-01
 
 - Changed workbook setup to Google's documented minimal create request followed by an

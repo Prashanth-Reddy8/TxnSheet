@@ -41,7 +41,10 @@ class TransactionNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        serviceScope.launch { appContainer.transactionIngestor.purgeExpiredReviewPayloads() }
+        serviceScope.launch {
+            discoverActiveNotificationSources()
+            appContainer.transactionIngestor.purgeExpiredReviewPayloads()
+        }
     }
 
     override fun onDestroy() {
@@ -102,6 +105,30 @@ class TransactionNotificationListener : NotificationListenerService() {
         }
     }
 
+    /**
+     * Populate the owner's source picker as soon as Android connects the listener. Only package
+     * metadata is inspected here; notification text remains unread until that source is enabled.
+     * This also makes already-visible bank/payment notifications discoverable after installation.
+     */
+    private suspend fun discoverActiveNotificationSources() {
+        try {
+            activeNotifications.orEmpty()
+                .asSequence()
+                .mapNotNull(StatusBarNotification::getPackageName)
+                .filterNot { it == applicationContext.packageName }
+                .distinct()
+                .forEach { packageName ->
+                    appContainer.sourceAppRegistry.recordSeenAndCheckEnabled(
+                        packageName = packageName,
+                        label = applicationLabel(packageName),
+                        seenAtEpochMs = System.currentTimeMillis(),
+                    )
+                }
+        } catch (_: RuntimeException) {
+            recordSafely("NOTIFICATION_SOURCE_DISCOVERY_FAILED")
+        }
+    }
+
     private fun applicationLabel(packageName: String): String = try {
         val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
         packageManager.getApplicationLabel(applicationInfo).toString().trim().take(128)
@@ -126,4 +153,3 @@ class TransactionNotificationListener : NotificationListenerService() {
         const val MAX_FUTURE_SKEW_MILLIS = 5 * 60_000L
     }
 }
-
