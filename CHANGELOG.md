@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4-alpha.5 - 2026-09-01
+
+- Explicitly request Android to reconnect TxnSheet's notification listener whenever the app
+  resumes with notification access enabled, addressing stale listener binding on Nothing OS.
+
 ## 1.0.3-alpha.4 - 2026-09-01
 
 - Discover notification source apps from notifications already visible when Android connects

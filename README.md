@@ -13,8 +13,8 @@ The current GitHub prerelease is a debug-signed device-test build, not an owner-
 production release.
 
 1. On the phone, open the repository's [Releases](../../releases) page.
-2. Open `v1.0.3-alpha.4` and download
-   `TxnSheet-1.0.3-NothingPhone1-debug.apk` from **Assets**.
+2. Open `v1.0.4-alpha.5` and download
+   `TxnSheet-1.0.4-NothingPhone1-debug.apk` from **Assets**.
 3. If Android asks, allow the browser or file manager to install unknown apps, then
    confirm the installation. A Play Protect warning is normal for a sideloaded debug APK.
 4. Open TxnSheet and review its disclosure before granting notification access.

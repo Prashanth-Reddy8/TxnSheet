@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -71,9 +72,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refreshSystemReadiness(
-            NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName),
-        )
+        val notificationAccessGranted =
+            NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        viewModel.refreshSystemReadiness(notificationAccessGranted)
+        if (notificationAccessGranted) {
+            // Nothing OS can retain the permission grant while leaving a sideloaded listener
+            // disconnected. Explicitly ask Android to bind it whenever the owner returns.
+            NotificationListenerService.requestRebind(
+                ComponentName(this, TransactionNotificationListener::class.java),
+            )
+        }
     }
 
     private fun launchGoogleAuthorization(pendingIntent: PendingIntent) {
