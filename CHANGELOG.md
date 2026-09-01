@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5-alpha.6 - 2026-09-01
+
+- Prefer the complete Android MessagingStyle message or longest visible notification body instead
+  of a compact summary, fixing supported bank SMS notifications being routed to ignore.
+- Added a regression test for the reported Kotak `Sent Rs... UPI Ref...` notification format.
+
 ## 1.0.4-alpha.5 - 2026-09-01
 
 - Explicitly request Android to reconnect TxnSheet's notification listener whenever the app

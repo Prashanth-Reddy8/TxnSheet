@@ -42,6 +42,29 @@ class TransactionParserTest {
     }
 
     @Test
+    fun `Kotak sent SMS from Google Messages auto syncs`() {
+        val result = TransactionParser.parse(
+            "VM-KOTAKB-S Sent Rs.1.00 from Kotak Bank A/c X9899 to Mr PALVAI PRASHANTH " +
+                "on 01-09-26. UPI Ref 624400604307. Not done by you? Tap fraud link.",
+            notificationContext.copy(
+                sourcePackage = "com.google.android.apps.messaging",
+                sourceLabel = "Messages",
+                institution = "Messages",
+            ),
+        )
+
+        assertEquals(ParseAction.AUTO_SYNC, result.action)
+        with(requireNotNull(result.draft)) {
+            assertEquals(100L, amountMinor)
+            assertEquals(Direction.DEBIT, direction)
+            assertEquals(TransactionMethod.UPI, method)
+            assertEquals("9899", accountLast4)
+            assertEquals("624400604307", referenceId)
+            assertEquals("Mr PALVAI PRASHANTH", counterparty)
+        }
+    }
+
+    @Test
     fun `known credit extracts bank transfer reference and only final account digits`() {
         val result = TransactionParser.parse(
             "INR 2,500 credited to account 123456789012 via IMPS from RAVI KUMAR. " +

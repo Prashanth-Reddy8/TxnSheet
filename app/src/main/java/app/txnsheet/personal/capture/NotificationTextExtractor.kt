@@ -19,7 +19,11 @@ internal object NotificationTextExtractor {
             extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
                 ?.joinToString(" ") { it.toString() },
-        ).firstOrNull { !it.isNullOrBlank() }?.trim()
+        )
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            // Some apps expose a compact summary in EXTRA_TEXT and the complete bank SMS in
+            // MessagingStyle or EXTRA_BIG_TEXT. Prefer the richest visible representation.
+            .maxByOrNull(String::length)
 
         val pieces = buildList {
             if (!title.isNullOrBlank() && body?.contains(title, ignoreCase = true) != true) add(title)
