@@ -117,7 +117,15 @@ class TransactionIngestor(
             val result = TransactionParser.parse(rawText, context)
             val draft = result.draft
             if (draft == null) {
-                recordSafely("PARSE_${result.action.name}", severity = "INFO")
+                val issueSuffix = result.issues
+                    .map(ParseIssue::name)
+                    .sorted()
+                    .joinToString("_")
+                    .take(120)
+                recordSafely(
+                    "PARSE_${result.action.name}${issueSuffix.takeIf(String::isNotBlank)?.let { "_$it" }.orEmpty()}",
+                    severity = "INFO",
+                )
                 return IngestionResult.Ignored(result.action, result.issues)
             }
 

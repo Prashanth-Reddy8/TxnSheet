@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6-alpha.7 - 2026-09-01
+
+- Extract the actual SMS text from Android MessagingStyle `EXTRA_MESSAGES` bundles used by
+  Google Messages, in addition to ordinary text and expanded-text fields.
+- Include privacy-safe parser issue names in diagnostics instead of a generic ignore code.
+
 ## 1.0.5-alpha.6 - 2026-09-01
 
 - Prefer the complete Android MessagingStyle message or longest visible notification body instead

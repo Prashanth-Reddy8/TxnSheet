@@ -1,6 +1,7 @@
 package app.txnsheet.personal.capture
 
 import android.app.Notification
+import android.os.Bundle
 import app.txnsheet.personal.parsing.TextNormalizer
 
 internal sealed interface NotificationTextExtraction {
@@ -14,7 +15,14 @@ internal object NotificationTextExtractor {
     fun extract(notification: Notification): NotificationTextExtraction {
         val extras = notification.extras ?: return NotificationTextExtraction.Empty
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
+        val structuredMessages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            .orEmpty()
+            .mapNotNull { (it as? Bundle)?.getCharSequence("text")?.toString() }
+            .filter(String::isNotBlank)
+            .joinToString(" ")
+            .takeIf(String::isNotBlank)
         val body = sequenceOf(
+            structuredMessages,
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
             extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
