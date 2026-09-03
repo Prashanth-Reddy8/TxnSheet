@@ -1,7 +1,6 @@
 package app.txnsheet.personal.ui
 
 import android.app.Application
-import android.content.Intent
 import androidx.room.withTransaction
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,7 +8,6 @@ import app.txnsheet.personal.TxnSheetApplication
 import app.txnsheet.personal.data.local.AppConfigEntity
 import app.txnsheet.personal.data.local.CategoryRuleEntity
 import app.txnsheet.personal.data.local.CorrectionAuditEntity
-import app.txnsheet.personal.data.local.SyncJobEntity
 import app.txnsheet.personal.data.repository.Destination
 import app.txnsheet.personal.data.repository.IngestionResult
 import app.txnsheet.personal.domain.Direction
@@ -17,8 +15,6 @@ import app.txnsheet.personal.domain.TransactionMethod
 import app.txnsheet.personal.parsing.ParseAction
 import app.txnsheet.personal.parsing.ParseContext
 import app.txnsheet.personal.parsing.ParseOrigin
-import app.txnsheet.personal.sync.WorkbookSetupOutcome
-import app.txnsheet.personal.sync.GoogleDisconnectOutcome
 import app.txnsheet.personal.ui.screens.ReviewSubmission
 import app.txnsheet.personal.ui.screens.ManualTransactionSubmission
 import app.txnsheet.personal.ui.screens.TransactionEdits
@@ -175,7 +171,7 @@ class TxnSheetViewModel(application: Application) : AndroidViewModel(application
         )
         if (accepted) {
             clearReviewSource(transactionId)
-            effectChannel.send(UiEffect.Message("Approved and queued for sync."))
+            effectChannel.send(UiEffect.Message("Approved and saved on this phone."))
             effectChannel.send(UiEffect.CloseCurrent)
         } else {
             effectChannel.send(UiEffect.Message("This item is no longer available for review."))
@@ -192,66 +188,33 @@ class TxnSheetViewModel(application: Application) : AndroidViewModel(application
 
     fun saveTransactionEdits(transactionId: String, edits: TransactionEdits) = launchAction {
         val current = database.transactionDao().byId(transactionId) ?: return@launchAction
-        if (current.status == "SYNCING") {
-            effectChannel.send(UiEffect.Message("Wait for the current sync to finish before editing."))
-            return@launchAction
-        }
         val changed = buildList {
             if (current.counterparty != edits.counterparty) add("counterparty")
             if (current.category != edits.category) add("category")
             if (current.notes != edits.notes) add("notes")
         }
         if (changed.isEmpty()) return@launchAction
-        if (current.status == "SYNCED") {
-            val queued = container.transactionIngestor.correctSyncedTransaction(
-                transactionId = transactionId,
-                amountMinor = requireNotNull(current.amountMinor),
-                direction = Direction.valueOf(requireNotNull(current.direction)),
-                method = TransactionMethod.valueOf(current.method),
+        database.withTransaction {
+            database.transactionDao().updateEditableFields(
+                id = transactionId,
                 counterparty = edits.counterparty,
                 category = edits.category,
                 notes = edits.notes,
             )
-            if (!queued) {
-                effectChannel.send(UiEffect.Message("The synced row could not be queued for correction."))
-                return@launchAction
-            }
-        } else {
-            database.withTransaction {
-                val latest = database.transactionDao().byId(transactionId)
-                    ?: return@withTransaction
-                database.transactionDao().updateEditableFields(
-                    id = transactionId,
-                    counterparty = edits.counterparty,
-                    category = edits.category,
-                    notes = edits.notes,
-                )
-                database.correctionAuditDao().insert(
-                    CorrectionAuditEntity(
-                        transactionId = transactionId,
-                        changedFieldNames = changed.joinToString(","),
-                        changedAtEpochMs = System.currentTimeMillis(),
-                    ),
-                )
-                if (latest.status != "REVIEW") {
-                    database.syncJobDao().upsert(
-                        SyncJobEntity(
-                            transactionId = transactionId,
-                            state = "QUEUED",
-                            remoteRange = latest.remoteRange,
-                        ),
-                    )
-                    database.transactionDao().updateStatus(transactionId, "QUEUED")
-                }
-            }
-            if (current.status != "REVIEW") container.syncScheduler.enqueue()
+            database.correctionAuditDao().insert(
+                CorrectionAuditEntity(
+                    transactionId = transactionId,
+                    changedFieldNames = changed.joinToString(","),
+                    changedAtEpochMs = System.currentTimeMillis(),
+                ),
+            )
         }
         effectChannel.send(UiEffect.Message("Changes saved."))
     }
 
     fun deleteLocalTransaction(transactionId: String) = launchAction {
         database.transactionDao().delete(transactionId)
-        effectChannel.send(UiEffect.Message("Local record removed. Your Sheet was not changed."))
+        effectChannel.send(UiEffect.Message("Transaction removed from this phone."))
         effectChannel.send(UiEffect.CloseCurrent)
     }
 
@@ -274,97 +237,11 @@ class TxnSheetViewModel(application: Application) : AndroidViewModel(application
         database.categoryRuleDao().delete(ruleId)
     }
 
-    fun createWorkbook(title: String) {
-        runtime.update { it.copy(pendingGoogleAction = PendingGoogleAction.Create(title)) }
-        launchAction { handleWorkbookOutcome(container.workbookSetupCoordinator.createWorkbook(title)) }
-    }
-
-    fun linkWorkbook(idOrUrl: String) {
-        runtime.update { it.copy(pendingGoogleAction = PendingGoogleAction.Link(idOrUrl)) }
-        launchAction { handleWorkbookOutcome(container.workbookSetupCoordinator.linkWorkbook(idOrUrl)) }
-    }
-
-    fun reconnectGoogle() {
-        runtime.update { it.copy(pendingGoogleAction = PendingGoogleAction.Reconnect) }
-        launchAction { handleWorkbookOutcome(container.workbookSetupCoordinator.reconnect()) }
-    }
-
-    fun disconnectGoogle() {
-        runtime.update { it.copy(pendingGoogleAction = PendingGoogleAction.Disconnect) }
-        launchAction { handleDisconnectOutcome(container.workbookSetupCoordinator.disconnect()) }
-    }
-
-    fun completeGoogleAuthorization(data: Intent?) = launchAction {
-        if (runtime.value.pendingGoogleAction == PendingGoogleAction.Disconnect) {
-            handleDisconnectOutcome(container.workbookSetupCoordinator.completeDisconnectAuthorization(data))
-            return@launchAction
-        }
-        val outcome = when (val action = runtime.value.pendingGoogleAction) {
-            is PendingGoogleAction.Create -> container.workbookSetupCoordinator.completeCreateAuthorization(data, action.title)
-            is PendingGoogleAction.Link -> container.workbookSetupCoordinator.completeLinkAuthorization(data, action.idOrUrl)
-            PendingGoogleAction.Reconnect -> container.workbookSetupCoordinator.completeReconnectAuthorization(data)
-            PendingGoogleAction.Disconnect -> error("handled above")
-            null -> {
-                effectChannel.send(UiEffect.Message("Google setup session expired. Please try again."))
-                return@launchAction
-            }
-        }
-        handleWorkbookOutcome(outcome)
-    }
-
-    private suspend fun handleDisconnectOutcome(outcome: GoogleDisconnectOutcome) {
-        when (outcome) {
-            is GoogleDisconnectOutcome.Disconnected -> {
-                runtime.update { it.copy(pendingGoogleAction = null) }
-                effectChannel.send(
-                    UiEffect.Message(
-                        if (outcome.revocationConfirmed) "Google access revoked. Your Sheet remains yours."
-                        else "Google ledger disconnected locally. Your Sheet remains yours.",
-                    ),
-                )
-            }
-            is GoogleDisconnectOutcome.ResolutionRequired -> {
-                effectChannel.send(UiEffect.LaunchGoogleAuthorization(outcome.pendingIntent))
-            }
-            is GoogleDisconnectOutcome.Error -> {
-                runtime.update { it.copy(pendingGoogleAction = null) }
-                effectChannel.send(UiEffect.Message("Google disconnect could not finish (${outcome.code})."))
-            }
-        }
-    }
-
-    private suspend fun handleWorkbookOutcome(outcome: WorkbookSetupOutcome) {
-        when (outcome) {
-            is WorkbookSetupOutcome.Ready -> {
-                runtime.update { it.copy(pendingGoogleAction = null) }
-                effectChannel.send(UiEffect.Message("Private Google ledger is ready."))
-            }
-            is WorkbookSetupOutcome.ResolutionRequired -> {
-                effectChannel.send(UiEffect.LaunchGoogleAuthorization(outcome.pendingIntent))
-            }
-            is WorkbookSetupOutcome.Error -> {
-                runtime.update { it.copy(pendingGoogleAction = null) }
-                effectChannel.send(UiEffect.Message(workbookErrorMessage(outcome.code)))
-            }
-        }
-    }
-
-    fun syncNow() {
-        container.syncScheduler.enqueue()
-        viewModelScope.launch { effectChannel.send(UiEffect.Message("Sync queued.")) }
-    }
-
-    fun openSpreadsheet() {
-        uiState.value.config.spreadsheetId?.let { id ->
-            viewModelScope.launch { effectChannel.send(UiEffect.OpenSpreadsheet(id)) }
-        }
-    }
-
     fun eraseLocalData() = launchAction {
         container.localDataEraser.erase()
         database.configDao().upsert(AppConfigEntity())
         runtime.update { RuntimeUiState(notificationAccessGranted = it.notificationAccessGranted) }
-        effectChannel.send(UiEffect.Message("All local TxnSheet data was erased. Your Sheet was not changed."))
+        effectChannel.send(UiEffect.Message("All local TxnSheet data was erased."))
     }
 
     private fun launchAction(block: suspend () -> Unit) {
@@ -384,37 +261,11 @@ class TxnSheetViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun workbookErrorMessage(code: String): String = when {
-        code == "GOOGLE_AUTH_CANCELLED" -> "Google connection was cancelled."
-        code == "GOOGLE_AUTH_4" -> "Add a Google account to this phone, then try again."
-        code == "GOOGLE_AUTH_7" || code == "GOOGLE_AUTH_NETWORK" ->
-            "Google could not connect. Check the network and try again."
-        code == "GOOGLE_AUTH_10" ->
-            "This APK does not match its Google OAuth registration. Install the latest update."
-        code == "GOOGLE_AUTH_16" ->
-            "Google access was cancelled or denied. Select the approved test account and allow access."
-        code == "DRIVE_FILE_SCOPE_NOT_GRANTED" ->
-            "Google did not grant file access. Reconnect and approve the requested permission."
-        code == "SPREADSHEET_ID_INVALID" -> "Enter a valid Google Sheets URL or spreadsheet ID."
-        code.startsWith("SCHEMA_") -> "That spreadsheet does not match the protected TxnSheet schema."
-        code == "AUTH_REQUIRED" -> "Google permission needs to be granted again."
-        code.contains("NETWORK") || code.contains("HTTP_5") -> "Network unavailable. Your local ledger is safe; try again later."
-        else -> "Google Sheet setup could not finish ($code)."
-    }
-
     private data class RuntimeUiState(
         val notificationAccessGranted: Boolean = false,
         val actionInProgress: Boolean = false,
         val reviewSourceById: Map<String, String?> = emptyMap(),
-        val pendingGoogleAction: PendingGoogleAction? = null,
     )
-
-    private sealed interface PendingGoogleAction {
-        data class Create(val title: String) : PendingGoogleAction
-        data class Link(val idOrUrl: String) : PendingGoogleAction
-        data object Reconnect : PendingGoogleAction
-        data object Disconnect : PendingGoogleAction
-    }
 
     private data class PersistentUiState(
         val config: AppConfigEntity,

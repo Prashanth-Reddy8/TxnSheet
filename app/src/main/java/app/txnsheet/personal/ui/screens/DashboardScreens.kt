@@ -81,7 +81,6 @@ fun HomeScreen(
     onOpenReview: () -> Unit,
     onOpenTransaction: (String) -> Unit,
     onOpenNotificationAccess: () -> Unit,
-    onOpenGoogleSetup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val zoneId = state.config.timezone
@@ -146,7 +145,6 @@ fun HomeScreen(
                 state = state,
                 onOpenReview = onOpenReview,
                 onOpenNotificationAccess = onOpenNotificationAccess,
-                onOpenGoogleSetup = onOpenGoogleSetup,
             )
             Spacer(Modifier.height(TxnSpacing.section))
             SectionLabel(
@@ -183,6 +181,8 @@ private fun MonthSummary(
     currency: String,
     transactionCount: Int,
 ) {
+    val balance = received - spent
+    val savingsRate = if (received > 0L) ((balance.coerceAtLeast(0L) * 100) / received).toInt() else 0
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -194,9 +194,14 @@ private fun MonthSummary(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            MoneyText(spent, currency, "DEBIT", prominent = true)
             Text(
-                "$transactionCount captured transaction${if (transactionCount == 1) "" else "s"}",
+                "Net balance",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MoneyText(if (balance < 0) -balance else balance, currency, if (balance < 0) "DEBIT" else "CREDIT", prominent = true)
+            Text(
+                "$transactionCount transaction${if (transactionCount == 1) "" else "s"} · $savingsRate% saved",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -205,19 +210,19 @@ private fun MonthSummary(
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SummaryMetric(
-                    label = "Spent",
-                    value = spent,
-                    currency = currency,
-                    direction = "DEBIT",
-                    icon = Icons.Outlined.ArrowUpward,
-                    modifier = Modifier.weight(1f),
-                )
-                SummaryMetric(
-                    label = "Received",
+                    label = "Income",
                     value = received,
                     currency = currency,
                     direction = "CREDIT",
                     icon = Icons.Outlined.ArrowDownward,
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryMetric(
+                    label = "Expenses",
+                    value = spent,
+                    currency = currency,
+                    direction = "DEBIT",
+                    icon = Icons.Outlined.ArrowUpward,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -252,7 +257,6 @@ private fun HomeHealthBanner(
     state: TxnSheetUiState,
     onOpenReview: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
-    onOpenGoogleSetup: () -> Unit,
 ) {
     when {
         !state.notificationAccessGranted -> HealthBanner(
@@ -269,35 +273,9 @@ private fun HomeHealthBanner(
             actionLabel = "Review now",
             onAction = onOpenReview,
         )
-        !state.sheetConnected -> HealthBanner(
-            title = "Ledger is only on this phone",
-            body = "Connect a private Google Sheet to keep an owner-controlled copy.",
-            tone = BannerTone.Info,
-            actionLabel = "Connect Google Sheet",
-            onAction = onOpenGoogleSetup,
-        )
-        state.authRequiredCount > 0 -> HealthBanner(
-            title = "Google needs to reconnect",
-            body = "${state.authRequiredCount} confirmed transaction${if (state.authRequiredCount == 1) " is" else "s are"} safe on this phone.",
-            tone = BannerTone.Warning,
-            actionLabel = "Reconnect Google",
-            onAction = onOpenGoogleSetup,
-        )
-        state.syncIssueCount > 0 -> HealthBanner(
-            title = "Sync needs attention",
-            body = "${state.syncIssueCount} confirmed transaction${if (state.syncIssueCount == 1) " is" else "s are"} safe on this phone but sync is paused.",
-            tone = BannerTone.Error,
-            actionLabel = "Check Google Sheet",
-            onAction = onOpenGoogleSetup,
-        )
-        state.pendingCount > 0 -> HealthBanner(
-            title = "${state.pendingCount} waiting to sync",
-            body = "They are safe on this phone and will retry with a network connection.",
-            tone = BannerTone.Info,
-        )
         else -> HealthBanner(
-            title = "Everything is up to date",
-            body = "Automatic capture and your private Google ledger are ready.",
+            title = "Your dashboard is ready",
+            body = "Automatic capture and private on-device insights are working.",
             tone = BannerTone.Good,
         )
     }
@@ -319,7 +297,6 @@ fun ActivityScreen(
                 ActivityFilter.DEBITS -> transaction.direction == "DEBIT"
                 ActivityFilter.CREDITS -> transaction.direction == "CREDIT"
                 ActivityFilter.NEEDS_REVIEW -> transaction.status == "REVIEW"
-                ActivityFilter.NOT_SYNCED -> transaction.status != "SYNCED"
             }
             val haystack = listOfNotNull(
                 transaction.counterparty,
@@ -473,9 +450,7 @@ fun ReviewQueueScreen(
 @Composable
 fun OnboardingScreen(
     notificationAccessGranted: Boolean,
-    sheetConnected: Boolean,
     onOpenNotificationAccess: () -> Unit,
-    onConnectSheet: () -> Unit,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -497,7 +472,7 @@ fun OnboardingScreen(
             Text("A transaction ledger that stays yours.", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(12.dp))
             Text(
-                "TxnSheet reads only the notification sources you choose, extracts ledger fields on this phone, and writes them to a Google Sheet you own.",
+                "TxnSheet reads only the notification sources you choose and turns them into a private dashboard on this phone.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -511,13 +486,13 @@ fun OnboardingScreen(
             OnboardingPrinciple(
                 number = "02",
                 title = "On-device parsing",
-                body = "OTP and promotional messages are rejected before storage or sync.",
+                body = "OTP and promotional messages are rejected before storage.",
                 icon = Icons.Outlined.Tune,
             )
             OnboardingPrinciple(
                 number = "03",
-                title = "Your private ledger",
-                body = "Only normalized transaction columns are sent to your Sheet.",
+                title = "Your private dashboard",
+                body = "Income, spending and trends stay available without an external app.",
                 icon = Icons.Outlined.AccountBalanceWallet,
             )
             Spacer(Modifier.height(24.dp))
@@ -529,12 +504,6 @@ fun OnboardingScreen(
                 complete = notificationAccessGranted,
                 onClick = onOpenNotificationAccess,
             )
-            SetupAction(
-                title = "Google Sheet",
-                body = if (sheetConnected) "Private ledger connected" else "Optional now; connect any time",
-                complete = sheetConnected,
-                onClick = onConnectSheet,
-            )
             Spacer(Modifier.height(28.dp))
             androidx.compose.material3.Button(
                 onClick = onFinish,
@@ -544,7 +513,7 @@ fun OnboardingScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Manual paste and share work even without notification or Google access.",
+                "Manual paste and share work even without notification access.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

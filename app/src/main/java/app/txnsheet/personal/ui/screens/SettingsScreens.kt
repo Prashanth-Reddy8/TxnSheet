@@ -88,7 +88,6 @@ import app.txnsheet.personal.ui.theme.TxnSpacing
 fun SettingsScreen(
     state: TxnSheetUiState,
     onOpenSources: () -> Unit,
-    onOpenGoogle: () -> Unit,
     onOpenRules: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenDiagnostics: () -> Unit,
@@ -124,14 +123,6 @@ fun SettingsScreen(
                 onClick = onOpenRules,
             )
             Spacer(Modifier.height(TxnSpacing.lg))
-            SectionLabel("Ledger")
-            SettingRow(
-                title = "Google Sheet",
-                supportingText = if (state.sheetConnected) "Connected and owner-controlled" else "Not connected",
-                icon = Icons.Outlined.TableChart,
-                onClick = onOpenGoogle,
-            )
-            Spacer(Modifier.height(TxnSpacing.lg))
             SectionLabel("Trust")
             SettingRow(
                 title = "Privacy and local data",
@@ -141,7 +132,7 @@ fun SettingsScreen(
             )
             SettingRow(
                 title = "Diagnostics",
-                supportingText = "Privacy-safe service and sync events",
+                supportingText = "Privacy-safe capture events",
                 icon = Icons.Outlined.BugReport,
                 onClick = onOpenDiagnostics,
             )
@@ -173,9 +164,9 @@ private fun ReadinessCard(state: TxnSheetUiState) {
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ReadinessRow(
-                title = "Private ledger",
-                supportingText = if (state.sheetConnected) "Google Sheet is connected" else "Local-only mode",
-                ready = state.sheetConnected,
+                title = "Private dashboard",
+                supportingText = "Stored only on this phone",
+                ready = true,
             )
         }
     }
@@ -259,174 +250,6 @@ private fun SourceToggleRow(source: SourceAppEntity, onToggle: (SourceAppEntity,
             checked = source.enabled,
             onCheckedChange = { enabled -> onToggle(source, enabled) },
         )
-    }
-}
-
-@Composable
-fun GoogleSheetScreen(
-    state: TxnSheetUiState,
-    onBack: () -> Unit,
-    onCreateWorkbook: (String) -> Unit,
-    onLinkWorkbook: (String) -> Unit,
-    onReconnect: () -> Unit,
-    onDisconnect: () -> Unit,
-    onSyncNow: () -> Unit,
-    onOpenWorkbook: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var workbookTitle by rememberSaveable { mutableStateOf("TxnSheet Ledger") }
-    var spreadsheetId by rememberSaveable { mutableStateOf("") }
-    var confirmDisconnect by remember { mutableStateOf(false) }
-
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = { DetailTopBar("Google Sheet", onBack) },
-        bottomBar = if (state.sheetConnected) {
-            {
-                StickyActionDock(
-                    primaryLabel = if (state.authRequiredCount > 0) "Reconnect Google" else "Sync now",
-                    onPrimary = if (state.authRequiredCount > 0) onReconnect else onSyncNow,
-                    secondaryLabel = "Open spreadsheet",
-                    onSecondary = onOpenWorkbook,
-                    working = state.actionInProgress,
-                )
-            }
-        } else {
-            {}
-        },
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(start = TxnSpacing.screen, end = TxnSpacing.screen, bottom = 32.dp),
-        ) {
-            item {
-                if (state.sheetConnected) {
-                    if (state.authRequiredCount > 0) {
-                        HealthBanner(
-                            title = "Google permission needs attention",
-                            body = "${state.authRequiredCount} transaction${if (state.authRequiredCount == 1) " is" else "s are"} safe on this phone and waiting for reconnection.",
-                            tone = BannerTone.Warning,
-                            actionLabel = "Reconnect Google",
-                            onAction = onReconnect,
-                        )
-                    } else if (state.syncIssueCount > 0) {
-                        HealthBanner(
-                            title = "Sync is paused safely",
-                            body = "${state.syncIssueCount} transaction${if (state.syncIssueCount == 1) " needs" else "s need"} attention. Open the spreadsheet to check its protected header, then validate again with Sync now.",
-                            tone = BannerTone.Error,
-                            actionLabel = "Open spreadsheet",
-                            onAction = onOpenWorkbook,
-                        )
-                    } else {
-                        HealthBanner(
-                            title = "Private ledger connected",
-                            body = state.config.lastSuccessfulSyncEpochMs?.let {
-                                "Last successful sync ${formatDateTime(it, state.config.timezone)}."
-                            } ?: "Ready for the first sync.",
-                            tone = if (state.pendingCount == 0) BannerTone.Good else BannerTone.Info,
-                        )
-                    }
-                    Spacer(Modifier.height(24.dp))
-                    SheetFact("Spreadsheet ID", state.config.spreadsheetId.orEmpty(), Icons.Outlined.DataObject, monospace = true)
-                    SheetFact("Permission", "Only files created by or already granted to TxnSheet", Icons.Outlined.Lock)
-                    SheetFact("Queued locally", "${state.pendingCount} transaction${if (state.pendingCount == 1) "" else "s"}", Icons.Outlined.Sync)
-                    Spacer(Modifier.height(24.dp))
-                    HealthBanner(
-                        title = "Schema is protected",
-                        body = "TxnSheet validates the 18-column header and schema version before every write. A mismatch pauses sync instead of guessing.",
-                        tone = BannerTone.Info,
-                    )
-                    Spacer(Modifier.height(20.dp))
-                    OutlinedButton(
-                        onClick = { confirmDisconnect = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                    ) {
-                        Text("Disconnect and revoke Google access", color = MaterialTheme.colorScheme.error)
-                    }
-                    Text(
-                        "Your spreadsheet is never deleted.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    HealthBanner(
-                        title = "Use the least Google access",
-                        body = "TxnSheet requests drive.file only. It cannot browse unrelated Drive files.",
-                        tone = BannerTone.Good,
-                    )
-                    Spacer(Modifier.height(28.dp))
-                    Text("CREATE A NEW LEDGER", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = workbookTitle,
-                        onValueChange = { workbookTitle = it.take(80) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Spreadsheet name") },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onCreateWorkbook(workbookTitle.trim()) },
-                        enabled = workbookTitle.isNotBlank() && !state.actionInProgress,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    ) {
-                        Icon(Icons.Outlined.Add, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Create private ledger")
-                    }
-                    Spacer(Modifier.height(32.dp))
-                    Text("OR LINK AN EXISTING TXNSHEET", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = spreadsheetId,
-                        onValueChange = { spreadsheetId = extractSpreadsheetId(it).take(120) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Spreadsheet ID or URL") },
-                        supportingText = { Text("For TxnSheet files already created by or granted to this app; the exact schema is validated") },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = { onLinkWorkbook(spreadsheetId.trim()) },
-                        enabled = spreadsheetId.length >= 20 && !state.actionInProgress,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                    ) {
-                        Text("Validate and link")
-                    }
-                    Spacer(Modifier.height(28.dp))
-                }
-            }
-        }
-    }
-
-    if (confirmDisconnect) {
-        AlertDialog(
-            onDismissRequest = { confirmDisconnect = false },
-            title = { Text("Disconnect Google?") },
-            text = { Text("TxnSheet will revoke its Google grant and remove the local Sheet link. Your spreadsheet and its rows remain in your Drive.") },
-            confirmButton = {
-                TextButton(onClick = { confirmDisconnect = false; onDisconnect() }) {
-                    Text("Disconnect", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
-private fun SheetFact(label: String, value: String, icon: ImageVector, monospace: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                value,
-                style = if (monospace) MaterialTheme.typography.bodySmall.copy(fontFamily = TxnMono) else MaterialTheme.typography.bodyMedium,
-            )
-        }
     }
 }
 
@@ -572,7 +395,7 @@ fun PrivacyScreen(
                 Text("What goes where", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "The boundary is simple: raw alert text stays on this phone; normalized ledger columns can go to the Sheet you own.",
+                    "The boundary is simple: transaction alerts, normalized records and dashboard insights stay on this phone.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -581,7 +404,7 @@ fun PrivacyScreen(
                     icon = Icons.Outlined.PhoneAndroid,
                     title = "Stored on this phone",
                     items = listOf(
-                        "Normalized local transactions and sync queue",
+                        "Normalized local transactions and dashboard totals",
                         "Encrypted source text for review items only",
                         "Allowed sources and category rules",
                         "Privacy-safe diagnostics without message text",
@@ -589,7 +412,7 @@ fun PrivacyScreen(
                 )
                 PrivacyBoundary(
                     icon = Icons.Outlined.CloudDone,
-                    title = "Written to your Google Sheet",
+                    title = "Leaves this phone",
                     items = listOf(
                         "Confirmed amount, direction, method and dates",
                         "Counterparty, category and normalized references",
@@ -625,7 +448,7 @@ fun PrivacyScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "This does not delete or alter your Google Sheet.",
+                    "This permanently removes the local dashboard and its settings.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -639,7 +462,7 @@ fun PrivacyScreen(
             icon = { Icon(Icons.Outlined.WarningAmber, contentDescription = null) },
             title = { Text("Erase all local data?") },
             text = {
-                Text("Transactions, queued work, review sources, source choices, rules and diagnostics will be permanently removed from this phone. Your remote Sheet stays untouched.")
+                Text("Transactions, review sources, source choices, rules and diagnostics will be permanently removed from this phone.")
             },
             confirmButton = {
                 TextButton(onClick = { confirmErase = false; onEraseLocalData() }) {
@@ -701,7 +524,7 @@ fun DiagnosticsScreen(
                 item {
                     TxnEmptyState(
                         title = "No diagnostic events",
-                        body = "Capture and sync health events will appear here when useful.",
+                        body = "Capture health events will appear here when useful.",
                         icon = Icons.Outlined.CheckCircle,
                     )
                 }

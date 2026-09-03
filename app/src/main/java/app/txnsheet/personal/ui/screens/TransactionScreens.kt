@@ -161,7 +161,7 @@ fun ManualImportScreen(
             item {
                 HealthBanner(
                     title = "Private by design",
-                    body = "Parsing happens locally. Only confirmed ledger fields can be sent to Google Sheets.",
+                    body = "Parsing and storage happen locally. Confirmed transactions update your private dashboard.",
                     tone = BannerTone.Good,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -214,7 +214,7 @@ fun ManualImportScreen(
                     ManualHint(
                         icon = Icons.Outlined.VerifiedUser,
                         title = "Conservative capture",
-                        body = "Uncertain amounts or directions go to Review instead of your Sheet.",
+                        body = "Uncertain amounts or directions go to Review instead of affecting your dashboard.",
                     )
                 }
                 Spacer(Modifier.height(32.dp))
@@ -475,7 +475,6 @@ fun TransactionDetailScreen(
                     DetailSection("Ledger record") {
                         DetailValue("Status", app.txnsheet.personal.ui.statusLabel(transaction.status))
                         DetailValue("Transaction ID", transaction.transactionId, monospace = true)
-                        transaction.remoteRange?.let { DetailValue("Sheet row", it, monospace = true) }
                         if (transaction.notes.isNotBlank()) DetailValue("Notes", transaction.notes)
                     }
                     Spacer(Modifier.height(12.dp))
@@ -489,7 +488,7 @@ fun TransactionDetailScreen(
                     }
                     Spacer(Modifier.height(24.dp))
                     Text(
-                        "Removing this local record does not delete an already-synced row from your Google Sheet.",
+                        "Removing this record immediately updates your local dashboard totals.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -502,7 +501,7 @@ fun TransactionDetailScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Remove this local record?") },
-            text = { Text("The remote Sheet is never deleted or modified by this action.") },
+            text = { Text("This removes the transaction from this phone and recalculates dashboard totals.") },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = false; onDelete() }) {
                     Text("Remove", color = MaterialTheme.colorScheme.error)
@@ -648,7 +647,7 @@ fun ReviewDetailScreen(
         AlertDialog(
             onDismissRequest = { showDiscard = false },
             title = { Text("Discard this transaction?") },
-            text = { Text("It will be removed from this phone and will not be sent to Google Sheets.") },
+            text = { Text("It will be removed from this phone and from local dashboard totals.") },
             confirmButton = {
                 TextButton(onClick = { showDiscard = false; onDiscard() }) {
                     Text("Discard", color = MaterialTheme.colorScheme.error)
@@ -729,7 +728,7 @@ private fun reviewReason(transaction: TransactionEntity): String = when {
     transaction.amountMinor == null && transaction.direction == null -> "Amount and direction could not be confirmed."
     transaction.amountMinor == null -> "The amount could not be confirmed."
     transaction.direction == null -> "Money-in versus money-out could not be confirmed."
-    else -> "The alert did not contain enough consistent evidence for automatic sync."
+    else -> "The alert did not contain enough consistent evidence for automatic capture."
 }
 
 private const val MAX_MANUAL_CHARS = 8_000

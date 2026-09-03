@@ -59,7 +59,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.txnsheet.personal.ui.screens.ActivityScreen
 import app.txnsheet.personal.ui.screens.DiagnosticsScreen
-import app.txnsheet.personal.ui.screens.GoogleSheetScreen
 import app.txnsheet.personal.ui.screens.HomeScreen
 import app.txnsheet.personal.ui.screens.ManualImportScreen
 import app.txnsheet.personal.ui.screens.OnboardingScreen
@@ -77,9 +76,7 @@ fun TxnSheetRoot(
     viewModel: TxnSheetViewModel,
     sharedText: String?,
     onSharedTextConsumed: () -> Unit,
-    onLaunchGoogleAuthorization: (android.app.PendingIntent) -> Unit,
     onOpenNotificationSettings: () -> Unit,
-    onOpenSpreadsheet: (String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
@@ -90,8 +87,6 @@ fun TxnSheetRoot(
     LaunchedEffect(viewModel, navController) {
         viewModel.effects.collect { effect ->
             when (effect) {
-                is UiEffect.LaunchGoogleAuthorization -> onLaunchGoogleAuthorization(effect.pendingIntent)
-                is UiEffect.OpenSpreadsheet -> onOpenSpreadsheet(effect.spreadsheetId)
                 is UiEffect.NavigateToTransaction -> {
                     pendingManualText = ""
                     navController.navigate(
@@ -118,9 +113,7 @@ fun TxnSheetRoot(
             state.loading -> Box(Modifier.fillMaxSize())
             !state.config.onboardingComplete -> OnboardingScreen(
                 notificationAccessGranted = state.notificationAccessGranted,
-                sheetConnected = state.sheetConnected,
                 onOpenNotificationAccess = { showNotificationDisclosure = true },
-                onConnectSheet = { viewModel.createWorkbook("TxnSheet Ledger") },
                 onFinish = viewModel::completeOnboarding,
                 modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing),
             )
@@ -225,7 +218,6 @@ private fun MainNavigation(
                     onOpenReview = { navController.navigateTopLevel(Routes.REVIEW) },
                     onOpenTransaction = { id -> openTransaction(navController, state, id) },
                     onOpenNotificationAccess = onRequestNotificationAccess,
-                    onOpenGoogleSetup = { navController.navigate(Routes.GOOGLE) },
                 )
             }
             composable(Routes.ACTIVITY) {
@@ -244,7 +236,6 @@ private fun MainNavigation(
                 SettingsScreen(
                     state = state,
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
-                    onOpenGoogle = { navController.navigate(Routes.GOOGLE) },
                     onOpenRules = { navController.navigate(Routes.RULES) },
                     onOpenPrivacy = { navController.navigate(Routes.PRIVACY) },
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
@@ -305,18 +296,6 @@ private fun MainNavigation(
                     onToggle = { source, enabled -> viewModel.setSourceEnabled(source.packageName, enabled) },
                 )
             }
-            composable(Routes.GOOGLE) {
-                GoogleSheetScreen(
-                    state = state,
-                    onBack = { navController.popBackStack() },
-                    onCreateWorkbook = viewModel::createWorkbook,
-                    onLinkWorkbook = viewModel::linkWorkbook,
-                    onReconnect = viewModel::reconnectGoogle,
-                    onDisconnect = viewModel::disconnectGoogle,
-                    onSyncNow = viewModel::syncNow,
-                    onOpenWorkbook = viewModel::openSpreadsheet,
-                )
-            }
             composable(Routes.RULES) {
                 RulesScreen(
                     rules = state.categoryRules,
@@ -349,7 +328,7 @@ private fun NotificationAccessDisclosure(onDismiss: () -> Unit, onContinue: () -
         title = { Text("Before you enable notification access") },
         text = {
             Text(
-                "Android will allow TxnSheet to see notification content. TxnSheet processes only sources you explicitly enable, on this phone, to detect completed transactions. OTP, verification, promotional and unrelated notifications are rejected. Raw text is never sent to Google; encrypted source text is kept only for uncertain review items and removed within seven days. You can revoke access in Android settings or erase all local data in TxnSheet at any time.",
+                "Android will allow TxnSheet to see notification content. TxnSheet processes only sources you explicitly enable, on this phone, to detect completed transactions. OTP, verification, promotional and unrelated notifications are rejected. Nothing is uploaded; encrypted source text is kept only for uncertain review items and removed within seven days. You can revoke access in Android settings or erase all local data in TxnSheet at any time.",
             )
         },
         confirmButton = { TextButton(onClick = onContinue) { Text("Continue to Android settings") } },
@@ -386,7 +365,6 @@ private object Routes {
     const val DETAIL = "transaction/{id}"
     const val REVIEW_DETAIL = "review/{id}"
     const val SOURCES = "settings/sources"
-    const val GOOGLE = "settings/google"
     const val RULES = "settings/rules"
     const val PRIVACY = "settings/privacy"
     const val DIAGNOSTICS = "settings/diagnostics"

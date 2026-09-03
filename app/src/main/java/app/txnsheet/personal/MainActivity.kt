@@ -1,10 +1,8 @@
 package app.txnsheet.personal
 
-import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -13,8 +11,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,12 +25,6 @@ import app.txnsheet.personal.capture.TransactionNotificationListener
 class MainActivity : ComponentActivity() {
     private val viewModel: TxnSheetViewModel by viewModels()
     private var sharedText by mutableStateOf<String?>(null)
-
-    private val googleAuthorizationLauncher = registerForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult(),
-    ) { result ->
-        viewModel.completeGoogleAuthorization(result.data)
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -56,9 +46,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     sharedText = sharedText,
                     onSharedTextConsumed = { sharedText = null },
-                    onLaunchGoogleAuthorization = ::launchGoogleAuthorization,
                     onOpenNotificationSettings = ::openNotificationSettings,
-                    onOpenSpreadsheet = ::openSpreadsheet,
                 )
             }
         }
@@ -84,10 +72,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launchGoogleAuthorization(pendingIntent: PendingIntent) {
-        googleAuthorizationLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
-    }
-
     private fun openNotificationSettings() {
         val detailIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
@@ -102,16 +86,6 @@ class MainActivity : ComponentActivity() {
         } catch (_: ActivityNotFoundException) {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
-    }
-
-    private fun openSpreadsheet(spreadsheetId: String) {
-        val safeId = spreadsheetId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{10,200}")) } ?: return
-        startActivity(
-            Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://docs.google.com/spreadsheets/d/$safeId/edit"),
-            ),
-        )
     }
 
     private fun Intent.sharedPlainText(): String? =

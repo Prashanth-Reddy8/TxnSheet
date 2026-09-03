@@ -251,9 +251,9 @@ fun TransactionStatusTag(
     val semantic = LocalTxnSemanticColors.current
     val normalized = status.uppercase()
     val (foreground, background) = when (normalized) {
-        "SYNCED" -> semantic.credit to semantic.creditContainer
-        "REVIEW", "AUTH_REQUIRED", "SHEET_REQUIRED" -> semantic.review to semantic.reviewContainer
-        "FAILED", "SCHEMA_ERROR" -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer
+        "LOCAL", "SYNCED" -> semantic.credit to semantic.creditContainer
+        "REVIEW" -> semantic.review to semantic.reviewContainer
+        "FAILED" -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer
         "IGNORED" -> semantic.ignored to MaterialTheme.colorScheme.surfaceVariant
         else -> semantic.queued to semantic.queuedContainer
     }
@@ -273,7 +273,7 @@ fun TransactionStatusTag(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-            if (!compact || normalized != "SYNCED") {
+            if (!compact || normalized !in setOf("LOCAL", "SYNCED")) {
                 Text(
                     text = statusLabel(status),
                     style = MaterialTheme.typography.labelMedium,
@@ -285,14 +285,10 @@ fun TransactionStatusTag(
 }
 
 private fun statusIcon(status: String): ImageVector = when (status) {
-    "SYNCED" -> Icons.Outlined.CheckCircle
+    "LOCAL", "SYNCED" -> Icons.Outlined.CheckCircle
     "REVIEW" -> Icons.Outlined.Visibility
-    "AUTH_REQUIRED" -> Icons.Outlined.Lock
-    "SHEET_REQUIRED" -> Icons.Outlined.Lock
-    "FAILED", "SCHEMA_ERROR" -> Icons.Outlined.ErrorOutline
+    "FAILED" -> Icons.Outlined.ErrorOutline
     "IGNORED" -> Icons.Outlined.RemoveCircleOutline
-    "SYNCING" -> Icons.Outlined.Sync
-    "QUEUED", "RETRY" -> Icons.Outlined.Schedule
     else -> Icons.Outlined.HourglassTop
 }
 

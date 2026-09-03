@@ -4,16 +4,11 @@ import android.content.Context
 import app.txnsheet.personal.capture.SourceAppRegistry
 import app.txnsheet.personal.data.local.AppConfigEntity
 import app.txnsheet.personal.data.local.TxnSheetDatabase
-import app.txnsheet.personal.data.remote.GoogleSheetsHttpGateway
-import app.txnsheet.personal.data.remote.PlayServicesGoogleAuthorizationGateway
 import app.txnsheet.personal.data.repository.CategoryRuleResolver
 import app.txnsheet.personal.data.repository.LocalDataEraser
-import app.txnsheet.personal.data.repository.SyncWorkEnqueuer
 import app.txnsheet.personal.data.repository.TransactionIngestor
 import app.txnsheet.personal.diagnostics.PrivacySafeDiagnostics
 import app.txnsheet.personal.security.ReviewPayloadCrypto
-import app.txnsheet.personal.sync.LedgerSyncScheduler
-import app.txnsheet.personal.sync.WorkbookSetupCoordinator
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -23,24 +18,13 @@ class AppContainer(context: Context) {
     val reviewPayloadCrypto = ReviewPayloadCrypto()
     val sourceAppRegistry = SourceAppRegistry(database.sourceAppDao())
 
-    val authorizationGateway = PlayServicesGoogleAuthorizationGateway(appContext)
-    val sheetsGateway = GoogleSheetsHttpGateway()
-    val syncScheduler = LedgerSyncScheduler(appContext)
-    val workbookSetupCoordinator = WorkbookSetupCoordinator(
-        authorization = authorizationGateway,
-        sheets = sheetsGateway,
-        configDao = database.configDao(),
-        scheduler = syncScheduler,
-    )
-
     val transactionIngestor = TransactionIngestor(
         database = database,
         reviewCrypto = reviewPayloadCrypto,
         diagnostics = diagnostics,
         categoryRules = CategoryRuleResolver(database.categoryRuleDao()),
-        syncWorkEnqueuer = SyncWorkEnqueuer(syncScheduler::enqueue),
     )
-    val localDataEraser = LocalDataEraser(appContext, database, reviewPayloadCrypto)
+    val localDataEraser = LocalDataEraser(database, reviewPayloadCrypto)
 
     suspend fun initializeLocalState() {
         val existingConfig = database.configDao().get()
@@ -54,12 +38,8 @@ class AppContainer(context: Context) {
         database.diagnosticDao().purgeBefore(
             System.currentTimeMillis() - DIAGNOSTIC_RETENTION_MILLIS,
         )
-        val config = database.configDao().get()
-        if (!config?.spreadsheetId.isNullOrBlank() &&
-            database.syncJobDao().ready(System.currentTimeMillis(), 1).isNotEmpty()
-        ) {
-            syncScheduler.enqueue()
-        }
+        database.configDao().migrateConfirmedTransactionsToLocal()
+        database.syncJobDao().deleteAll()
     }
 
     private companion object {

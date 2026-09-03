@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0 - 2026-09-04
+
+- Replaced the Google Sheets workflow with a private, on-device finance dashboard.
+- Removed Google authorization, Sheets/Drive clients, background sync, network permission, and related dependencies.
+- Applied the supplied Figma package's light/dark palette, typography scale, spacing, and card styling.
+- Added monthly net balance and savings-rate insights alongside income, expenses, and recent activity.
+- Migrates existing confirmed transactions to local-only storage without deleting history.
+
 ## 1.0.6-alpha.7 - 2026-09-01
 
 - Extract the actual SMS text from Android MessagingStyle `EXTRA_MESSAGES` bundles used by

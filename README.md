@@ -1,53 +1,40 @@
 # TxnSheet for Android
 
 TxnSheet turns transaction notifications selected by the owner into a private,
-structured Google Sheets ledger. Parsing happens deterministically on the phone;
-only normalized ledger fields are sent to the selected spreadsheet.
+on-device finance dashboard. Parsing and storage stay on the phone; the app has no
+Google Sheets integration and does not request internet or SMS permissions.
 
-This repository contains the native Kotlin/Jetpack Compose implementation of TxnSheet.
-It does not request SMS permissions and does not upload raw notification text.
+## What it does
 
-## Install on Nothing Phone (1)
+- Captures completed transaction alerts from source apps the owner explicitly enables.
+- Shows monthly income, expenses, net balance, savings rate, and recent activity.
+- Holds incomplete or ambiguous alerts for review instead of guessing.
+- Supports search, debit/credit/review filters, manual entry, category rules, and edits.
+- Encrypts temporary review text with Android Keystore and expires it automatically.
+- Provides light, dark, and system-aware native Android UI.
 
-The current GitHub prerelease is a debug-signed device-test build, not an owner-signed
-production release.
+## Install
 
-1. On the phone, open the repository's [Releases](../../releases) page.
-2. Open `v1.0.6-alpha.7` and download
-   `TxnSheet-1.0.6-NothingPhone1-debug.apk` from **Assets**.
-3. If Android asks, allow the browser or file manager to install unknown apps, then
-   confirm the installation. A Play Protect warning is normal for a sideloaded debug APK.
-4. Open TxnSheet and review its disclosure before granting notification access.
+Download the latest APK from [Releases](../../releases). A GitHub debug APK is intended
+for device testing and may show Android sideloading warnings. A store-distributed,
+owner-signed build is required to remove most installation friction.
 
-For Google Sheets authorization, the Google Cloud project must have an Android OAuth
-client for package `app.txnsheet.personal.debug` and the debug certificate SHA-1 shown
-in the prerelease notes. Without that owner setup, local capture, review, and manual
-entry work, but Google authorization will not.
+After installation, open **Settings → Notification access** and enable TxnSheet. Inside
+TxnSheet, enable only the source apps whose transaction alerts you want captured.
 
-## Privacy and safety properties
+## Privacy and safety
 
-- Notification capture is default-deny. A newly discovered source app remains disabled
-  until the owner explicitly enables it.
-- OTP, verification, promotional, balance-only, conflicting, and low-confidence messages
+- Notification capture is default-deny per source app.
+- OTP, verification, promotional, balance-only, conflicting, and low-confidence alerts
   are rejected or held for review by deterministic rules.
-- Review-only source text is encrypted with an Android Keystore AES-256-GCM key and is
-  automatically expired. It is never written to Google Sheets or diagnostics.
-- Transactions are stored locally before work is scheduled. A stable UUID and a remote
-  UUID lookup prevent retry-created duplicate rows.
-- Google access uses the per-file `drive.file` scope. Access tokens are short-lived and
-  are never stored in Room, DataStore, WorkManager input, or logs.
-- Sync fails closed if the workbook header or schema version has changed.
-- Backups are disabled and cleartext network traffic is blocked.
+- Confirmed transactions are stored only in the app's local Room database.
+- Review source text is encrypted with AES-256-GCM and automatically expires.
+- Android backups and cleartext traffic are disabled; the app declares no network access.
+- Erase local data is available from Privacy settings.
 
 ## Build
 
-Requirements:
-
-- Android Studio with JDK 17 or newer
-- Android SDK Platform 36.1 and Build Tools 36.0.0+
-- Gradle 9.5 (the checked-in wrapper downloads the matching distribution)
-
-From PowerShell:
+Requirements: Android Studio/JDK 17, Android SDK 36.1, and Gradle 9.5.
 
 ```powershell
 ./gradlew testDebugUnitTest lintDebug assembleDebug
@@ -55,51 +42,14 @@ From PowerShell:
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Google Cloud setup
-
-Before an owner-signed release can authorize Google:
-
-1. Create or select a Google Cloud project.
-2. Enable the Google Sheets API and Google Drive API.
-3. Configure the OAuth consent screen with the product privacy policy and support contact.
-4. Create an Android OAuth client for package `app.txnsheet.personal` and the SHA-1 of the
-   final release or Play App Signing certificate.
-5. If a debug build is used for development, create a separate client for
-   `app.txnsheet.personal.debug` and its debug certificate SHA-1.
-
-No OAuth client secret belongs in the APK.
-
-## Owner-signed release
-
-Keep the release keystore outside this repository and provide these environment variables:
-
-```text
-TXNSHEET_KEYSTORE_PATH
-TXNSHEET_KEYSTORE_PASSWORD
-TXNSHEET_KEY_ALIAS
-TXNSHEET_KEY_PASSWORD
-```
-
-Then run:
-
-```powershell
-./gradlew clean testReleaseUnitTest lintRelease bundleRelease assembleRelease
-```
-
-See [the release checklist](docs/RELEASE_CHECKLIST.md) before distributing the build.
-
-## Repository status
-
-This private repository and its binary artifacts are all-rights-reserved. The first
-GitHub binary is deliberately marked as a prerelease until owner signing, Google OAuth,
-privacy-policy hosting, and physical-device checks are complete.
-
 ## Architecture
 
-- `capture/`: notification listener and minimal extraction
-- `parsing/`: bounded, explainable transaction parsing and duplicate fingerprints
-- `data/local/`: Room entities and atomic local state transitions
-- `security/`: Android Keystore encryption for review payloads
-- `data/remote/` and `sync/`: ephemeral Google authorization, schema validation, and
-  serialized WorkManager uploads
-- `ui/`: edge-to-edge Compose interface with accessible review and setup flows
+- `capture/`: notification listener and source allowlist
+- `parsing/`: bounded, explainable transaction parsing and duplicate detection
+- `data/local/`: Room-backed device ledger
+- `security/`: Android Keystore encryption for temporary review payloads
+- `ui/`: Jetpack Compose dashboard, activity, review, and settings flows
+
+Legacy sync columns remain in the local database schema only so existing installations
+can upgrade without losing transaction history; startup migrates confirmed records to
+the local-only status and clears obsolete jobs.

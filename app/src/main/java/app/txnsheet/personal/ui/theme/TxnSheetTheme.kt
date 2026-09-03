@@ -21,25 +21,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val Ink = Color(0xFF161719)
-private val Paper = Color(0xFFF4F2EB)
-private val PaperSurface = Color(0xFFFCFBF7)
+private val Ink = Color(0xFF151823)
+private val Paper = Color(0xFFF7F8FC)
+private val PaperSurface = Color(0xFFFFFFFF)
 private val PaperRaised = Color(0xFFFFFFFF)
-private val PaperVariant = Color(0xFFEAE8E1)
-private val InkMuted = Color(0xFF62666D)
-private val PaperOutline = Color(0xFFD4D3CC)
-private val Cobalt = Color(0xFF3159D9)
-private val CobaltContainer = Color(0xFFE0E7FF)
+private val PaperVariant = Color(0xFFEEF1F8)
+private val InkMuted = Color(0xFF687080)
+private val PaperOutline = Color(0xFFDCE1EB)
+private val Cobalt = Color(0xFF596BFF)
+private val CobaltContainer = Color(0xFFE9ECFF)
 
 private val Night = Color(0xFF090A0C)
-private val NightSurface = Color(0xFF121416)
+private val NightSurface = Color(0xFF151820)
 private val NightRaised = Color(0xFF17191C)
-private val NightVariant = Color(0xFF1C2025)
+private val NightVariant = Color(0xFF1D222C)
 private val NightInk = Color(0xFFF2F3EF)
-private val NightMuted = Color(0xFFA9ADB4)
-private val NightOutline = Color(0xFF363A40)
-private val NightCobalt = Color(0xFF9CB4FF)
-private val NightCobaltContainer = Color(0xFF253C7A)
+private val NightMuted = Color(0xFF9AA3B2)
+private val NightOutline = Color(0xFF2A313D)
+private val NightCobalt = Color(0xFF7887FF)
+private val NightCobaltContainer = Color(0xFF242B5C)
 
 private val TxnLightScheme = lightColorScheme(
     primary = Cobalt,
@@ -184,8 +184,8 @@ private val TxnTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = UiSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
-        lineHeight = 38.sp,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
         letterSpacing = (-0.35).sp,
     ),
     headlineMedium = TextStyle(
@@ -278,4 +278,3 @@ fun TxnSheetTheme(
         )
     }
 }
-

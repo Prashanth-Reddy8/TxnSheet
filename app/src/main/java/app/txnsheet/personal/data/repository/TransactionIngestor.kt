@@ -5,7 +5,6 @@ import androidx.room.withTransaction
 import app.txnsheet.personal.data.local.AppConfigEntity
 import app.txnsheet.personal.data.local.CorrectionAuditEntity
 import app.txnsheet.personal.data.local.ReviewItemEntity
-import app.txnsheet.personal.data.local.SyncJobEntity
 import app.txnsheet.personal.data.local.TransactionEntity
 import app.txnsheet.personal.data.local.TxnSheetDatabase
 import app.txnsheet.personal.diagnostics.PrivacySafeDiagnostics
@@ -37,7 +36,7 @@ sealed interface IngestionResult {
     data object FailedSafely : IngestionResult
 }
 
-enum class Destination { SYNC_QUEUE, REVIEW }
+enum class Destination { LOCAL, REVIEW }
 
 /**
  * The sole entry point from notification/share capture into durable ledger state.
@@ -48,7 +47,6 @@ class TransactionIngestor(
     private val reviewCrypto: ReviewPayloadCrypto,
     private val diagnostics: PrivacySafeDiagnostics,
     private val categoryRules: CategoryRuleResolver,
-    private val syncWorkEnqueuer: SyncWorkEnqueuer = SyncWorkEnqueuer.NONE,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     suspend fun createManualTransaction(
@@ -92,15 +90,11 @@ class TransactionIngestor(
             parserRule = "manual_entry@1.0.0",
             notes = notes.trim().take(240),
             eventFingerprint = sha256("manual-v1|$transactionId"),
-            status = STATUS_QUEUED,
+            status = STATUS_LOCAL,
         )
         return try {
-            database.atomicStoreDao().insertForSync(
-                transaction,
-                SyncJobEntity(transactionId = transactionId, state = STATUS_QUEUED),
-            )
-            enqueueSyncSafely()
-            IngestionResult.Saved(transactionId, Destination.SYNC_QUEUE)
+            database.transactionDao().insert(transaction)
+            IngestionResult.Saved(transactionId, Destination.LOCAL)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: SQLiteConstraintException) {
@@ -140,7 +134,7 @@ class TransactionIngestor(
 
             val transactionId = UUID.randomUUID().toString()
             val status = when (result.action) {
-                ParseAction.AUTO_SYNC -> STATUS_QUEUED
+                ParseAction.AUTO_SYNC -> STATUS_LOCAL
                 ParseAction.REVIEW -> STATUS_REVIEW
                 else -> {
                     recordSafely("PARSE_ROUTE_INVALID", severity = "ERROR")
@@ -155,12 +149,8 @@ class TransactionIngestor(
 
             when (result.action) {
                 ParseAction.AUTO_SYNC -> {
-                    database.atomicStoreDao().insertForSync(
-                        transaction,
-                        SyncJobEntity(transactionId = transactionId, state = STATUS_QUEUED),
-                    )
-                    enqueueSyncSafely()
-                    IngestionResult.Saved(transactionId, Destination.SYNC_QUEUE)
+                    database.transactionDao().insert(transaction)
+                    IngestionResult.Saved(transactionId, Destination.LOCAL)
                 }
 
                 ParseAction.REVIEW -> {
@@ -256,13 +246,10 @@ class TransactionIngestor(
                     counterparty = safeCounterparty,
                     category = safeCategory,
                     notes = safeNotes,
-                    status = STATUS_QUEUED,
+                    status = STATUS_LOCAL,
                 ),
             )
             database.reviewDao().delete(transactionId)
-            database.syncJobDao().upsert(
-                SyncJobEntity(transactionId = transactionId, state = STATUS_QUEUED),
-            )
             if (changedFields.isNotEmpty()) {
                 database.correctionAuditDao().insert(
                     CorrectionAuditEntity(
@@ -274,7 +261,6 @@ class TransactionIngestor(
             }
             true
         }
-        if (accepted) enqueueSyncSafely()
         return accepted
     }
 
@@ -285,7 +271,7 @@ class TransactionIngestor(
         true
     }
 
-    /** Queues an in-place correction; the worker verifies the UUID before updating the remote row. */
+    /** Applies a correction to the canonical local transaction record. */
     suspend fun correctSyncedTransaction(
         transactionId: String,
         amountMinor: Long,
@@ -299,11 +285,9 @@ class TransactionIngestor(
         val safeCounterparty = counterparty?.trim()?.take(96)?.takeIf(String::isNotBlank)
         val safeCategory = category.trim().take(64).ifBlank { "Uncategorized" }
         val safeNotes = notes.trim().take(240)
-        val queued = database.withTransaction {
+        return database.withTransaction {
             val current = database.transactionDao().byId(transactionId) ?: return@withTransaction false
-            if (current.status != STATUS_SYNCED || current.remoteRange.isNullOrBlank()) {
-                return@withTransaction false
-            }
+            if (current.status == STATUS_REVIEW) return@withTransaction false
             val changedFields = buildList {
                 if (current.amountMinor != amountMinor) add("amount")
                 if (current.direction != direction.name) add("direction")
@@ -321,14 +305,9 @@ class TransactionIngestor(
                     counterparty = safeCounterparty,
                     category = safeCategory,
                     notes = safeNotes,
-                    status = STATUS_QUEUED,
-                ),
-            )
-            database.syncJobDao().upsert(
-                SyncJobEntity(
-                    transactionId = transactionId,
-                    state = STATUS_QUEUED,
-                    remoteRange = current.remoteRange,
+                    status = STATUS_LOCAL,
+                    remoteRange = null,
+                    syncedAtEpochMs = null,
                 ),
             )
             database.correctionAuditDao().insert(
@@ -340,8 +319,6 @@ class TransactionIngestor(
             )
             true
         }
-        if (queued) enqueueSyncSafely()
-        return queued
     }
 
     suspend fun purgeExpiredReviewPayloads(): Int =
@@ -428,14 +405,6 @@ class TransactionIngestor(
         .ifBlank { "CONFIRM_DETAILS" }
         .take(160)
 
-    private fun enqueueSyncSafely() {
-        try {
-            syncWorkEnqueuer.enqueue()
-        } catch (_: RuntimeException) {
-            // The durable QUEUED job remains in Room and can be picked up by a later app start.
-        }
-    }
-
     private suspend fun recordSafely(code: String, severity: String) {
         try {
             diagnostics.record(code = code, component = "ingestion", severity = severity)
@@ -470,9 +439,8 @@ class TransactionIngestor(
         .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private companion object {
-        const val STATUS_QUEUED = "QUEUED"
+        const val STATUS_LOCAL = "LOCAL"
         const val STATUS_REVIEW = "REVIEW"
-        const val STATUS_SYNCED = "SYNCED"
         const val MANUAL_SOURCE = "manual"
         const val MILLIS_PER_DAY = 86_400_000L
         const val MIN_REVIEW_RETENTION_DAYS = 1

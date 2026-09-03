@@ -16,17 +16,11 @@ android {
         applicationId = "app.txnsheet.personal"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.0.6"
+        versionCode = 8
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
-        buildConfigField(
-            "String",
-            "GOOGLE_DRIVE_SCOPE",
-            "\"https://www.googleapis.com/auth/drive.file\"",
-        )
-
         kapt {
             arguments {
                 arg("room.schemaLocation", "$projectDir/schemas")
@@ -131,11 +125,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
-    implementation(libs.androidx.work.runtime)
-    implementation(libs.google.play.auth)
-    implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kotlinx.coroutines.play.services)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

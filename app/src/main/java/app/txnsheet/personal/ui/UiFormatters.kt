@@ -44,14 +44,9 @@ fun formatDateTime(epochMs: Long, zoneId: String = "Asia/Kolkata"): String =
     Instant.ofEpochMilli(epochMs).atZone(ZoneId.of(zoneId)).format(FullDateTimeFormatter)
 
 fun statusLabel(status: String): String = when (status.uppercase(Locale.ROOT)) {
-    "SYNCED" -> "In Google Sheet"
-    "QUEUED", "RETRY" -> "Saved on phone"
-    "SYNCING" -> "Syncing"
+    "LOCAL", "SYNCED", "QUEUED", "RETRY", "SYNCING" -> "Saved on phone"
     "REVIEW" -> "Check details"
-    "AUTH_REQUIRED" -> "Reconnect Google"
-    "SHEET_REQUIRED" -> "Connect Google Sheet"
-    "SCHEMA_ERROR" -> "Sheet needs repair"
-    "FAILED" -> "Sync paused"
+    "AUTH_REQUIRED", "SHEET_REQUIRED", "SCHEMA_ERROR", "FAILED" -> "Saved on phone"
     "IGNORED" -> "Ignored"
     "PARSED", "CAPTURED" -> "Saved on phone"
     else -> status.lowercase(Locale.ROOT).replaceFirstChar(Char::titlecase)
