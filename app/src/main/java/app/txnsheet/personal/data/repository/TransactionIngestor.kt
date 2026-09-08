@@ -127,7 +127,11 @@ class TransactionIngestor(
                 category = categoryRules.resolve(draft.counterparty, draft.category),
             )
             val fingerprint = fingerprint(categorizedDraft, rawText, context)
-            if (database.transactionDao().fingerprintExists(fingerprint)) {
+            val previousSourceFingerprint = if (!categorizedDraft.referenceId.isNullOrBlank() && !context.sourceLabel.isNullOrBlank()) {
+                FingerprintFactory.create(categorizedDraft.copy(institution = context.sourceLabel), context.sourcePackage, rawText, context.captureTime)
+            } else null
+            if (database.transactionDao().fingerprintExists(fingerprint) ||
+                (previousSourceFingerprint != null && previousSourceFingerprint != fingerprint && database.transactionDao().fingerprintExists(previousSourceFingerprint))) {
                 recordSafely("DUPLICATE_SUPPRESSED", severity = "INFO")
                 return IngestionResult.Duplicate
             }
@@ -150,6 +154,7 @@ class TransactionIngestor(
             when (result.action) {
                 ParseAction.AUTO_SYNC -> {
                     database.transactionDao().insert(transaction)
+                    recordSafely("CAPTURE_SAVED", severity = "INFO")
                     IngestionResult.Saved(transactionId, Destination.LOCAL)
                 }
 
@@ -166,6 +171,7 @@ class TransactionIngestor(
                             expiresAtEpochMs = clock.millis() + retentionDays * MILLIS_PER_DAY,
                         ),
                     )
+                    recordSafely("CAPTURE_NEEDS_REVIEW", severity = "INFO")
                     IngestionResult.Saved(transactionId, Destination.REVIEW)
                 }
 
@@ -356,9 +362,12 @@ class TransactionIngestor(
         context: ParseContext,
     ): String {
         return if (draft.amountMinor != null && draft.direction != null) {
-            FingerprintFactory.create(draft, context.sourcePackage, rawText, context.captureTime)
+            FingerprintFactory.create(draft, context.sourcePackage, rawText, context.captureTime, context.notificationIdentity)
         } else {
             val contentHash = sha256(TextNormalizer.normalize(rawText))
+            context.notificationIdentity?.takeIf(String::isNotBlank)?.let { identity ->
+                return sha256(listOf("review-notification-v2", context.sourcePackage.lowercase(Locale.ROOT), sha256(identity), contentHash).joinToString("|"))
+            }
             val captureMinute = Math.floorDiv(context.captureTime.epochSecond, 60L)
             sha256(
                 listOf(

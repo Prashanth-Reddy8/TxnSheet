@@ -38,6 +38,7 @@ enum class ParseIssue {
     INPUT_TOO_LONG,
     OTP_OR_SECURITY_MESSAGE,
     PROMOTIONAL_MESSAGE,
+    PAYMENT_NOT_COMPLETED,
     BALANCE_ONLY,
     INSUFFICIENT_EVIDENCE,
     MISSING_AMOUNT,
@@ -58,6 +59,8 @@ data class ParseContext(
     val origin: ParseOrigin = ParseOrigin.NOTIFICATION,
     val sourceIsKnown: Boolean = false,
     val defaultCurrency: String = "INR",
+    /** Android message identity, used transiently for duplicate suppression; never shown or logged. */
+    val notificationIdentity: String? = null,
 ) {
     init {
         require(sourcePackage.isNotBlank()) { "sourcePackage must not be blank" }

@@ -12,7 +12,10 @@ enum class Direction {
 enum class TransactionMethod {
     UPI,
     CARD,
+    CREDIT_CARD,
+    DEBIT_CARD,
     BANK_TRANSFER,
+    AUTO_DEBIT,
     ATM,
     CASH,
     FEE,

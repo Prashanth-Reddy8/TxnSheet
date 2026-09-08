@@ -21,6 +21,11 @@ Structured transactions, configuration, source choices, review state, and privac
 are stored in the app's private local database. Android backups are disabled. The owner can delete
 individual transactions and clear all local app data. Clearing all data also removes the review encryption key.
 
+Budgets, debt records, goals, planning assumptions, transaction classifications, and user-selected
+Excel workbook snapshots are also stored locally. Imported workbook cells can include personal
+text and remain available until the snapshot is replaced or all app data is erased. Workbooks are
+chosen using Android's document picker; no broad storage permission is requested.
+
 ## Network use
 
 TxnSheet declares no internet permission and contains no advertising SDK or analytics integration. A release operator must

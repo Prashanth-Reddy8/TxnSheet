@@ -1,6 +1,7 @@
 package app.txnsheet.personal.data.repository
 
 import app.txnsheet.personal.data.local.CategoryRuleDao
+import app.txnsheet.personal.domain.MerchantCategories
 import app.txnsheet.personal.parsing.TextNormalizer
 import java.util.Locale
 
@@ -24,7 +25,7 @@ class CategoryRuleResolver(private val dao: CategoryRuleDao) {
                 else -> false
             }
         }
-        return match?.category?.trim()?.take(64)?.takeIf(String::isNotBlank) ?: fallback
+        return match?.category?.trim()?.take(64)?.takeIf(String::isNotBlank)
+            ?: MerchantCategories.resolveDefault(counterparty, fallback)
     }
 }
-

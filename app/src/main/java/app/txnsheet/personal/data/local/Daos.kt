@@ -198,7 +198,7 @@ interface ConfigDao {
     @Query("SELECT * FROM app_config WHERE id = 1 LIMIT 1")
     fun observe(): Flow<AppConfigEntity?>
 
-    @Query("UPDATE transactions SET status = 'LOCAL', remoteRange = NULL, syncedAtEpochMs = NULL WHERE status != 'REVIEW'")
+    @Query("UPDATE transactions SET status = 'LOCAL', remoteRange = NULL, syncedAtEpochMs = NULL WHERE status IN ('SYNCED','QUEUED','RETRY','SYNCING','AUTH_REQUIRED','SHEET_REQUIRED','SCHEMA_ERROR')")
     suspend fun migrateConfirmedTransactionsToLocal(): Int
 
     @Query("UPDATE sync_jobs SET state = 'QUEUED', nextAttemptEpochMs = NULL, errorCode = NULL WHERE state IN (:states)")

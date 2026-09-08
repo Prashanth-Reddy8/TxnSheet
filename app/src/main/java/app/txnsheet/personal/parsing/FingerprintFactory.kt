@@ -13,6 +13,7 @@ object FingerprintFactory {
         sourcePackage: String,
         normalizedText: String,
         captureTime: Instant,
+        notificationIdentity: String? = null,
     ): String {
         require(sourcePackage.isNotBlank()) { "sourcePackage must not be blank" }
         val amountMinor = requireNotNull(draft.amountMinor) {
@@ -27,6 +28,16 @@ object FingerprintFactory {
                 "v1",
                 canonical(draft.institution.orEmpty()),
                 canonical(draft.referenceId),
+                amountMinor.toString(),
+                direction.name,
+            ).joinToString("|")
+        } else if (!notificationIdentity.isNullOrBlank()) {
+            // Stable across listener reconnects and MessagingStyle history updates, while keeping
+            // two separate same-amount payments made in the same minute as separate transactions.
+            listOf(
+                "notification-v2",
+                canonical(sourcePackage),
+                sha256(notificationIdentity),
                 amountMinor.toString(),
                 direction.name,
             ).joinToString("|")

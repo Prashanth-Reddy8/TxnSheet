@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import app.txnsheet.personal.TxnSheetApplication
+import app.txnsheet.personal.data.repository.IngestionResult
 import app.txnsheet.personal.parsing.ParseContext
 import app.txnsheet.personal.parsing.ParseOrigin
 import java.time.Instant
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 class TransactionNotificationListener : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replayCache = RecentNotificationCache()
+    private val serviceStartedAtEpochMs = System.currentTimeMillis()
 
     private val appContainer
         get() = (application as TxnSheetApplication).container
@@ -33,9 +35,8 @@ class TransactionNotificationListener : NotificationListenerService() {
 
         // The callback only copies non-message metadata. The extras are read later, and only after
         // the package passes the owner's local allow-list.
-        val postedAtEpochMs = sbn.postTime
         serviceScope.launch {
-            captureAllowedNotification(packageName, postedAtEpochMs, notification)
+            captureAllowedNotification(packageName, sbn.key, sbn.postTime, notification)
         }
     }
 
@@ -54,6 +55,7 @@ class TransactionNotificationListener : NotificationListenerService() {
 
     private suspend fun captureAllowedNotification(
         packageName: String,
+        notificationKey: String,
         postedAtEpochMs: Long,
         notification: Notification,
     ) {
@@ -67,35 +69,47 @@ class TransactionNotificationListener : NotificationListenerService() {
             )
             if (!enabled) return
 
-            when (val extracted = NotificationTextExtractor.extract(notification)) {
-                NotificationTextExtraction.Empty -> recordSafely("NOTIFICATION_TEXT_EMPTY")
-                NotificationTextExtraction.TooLong -> recordSafely("NOTIFICATION_TEXT_TOO_LONG")
-                is NotificationTextExtraction.Captured -> {
-                    if (!replayCache.shouldProcess(
-                            packageName,
-                            extracted.text,
-                            SystemClock.elapsedRealtime(),
-                        )
-                    ) return
-                    val config = appContainer.database.configDao().get()
-                    val capturedAt = Instant.ofEpochMilli(now)
-                    val eventAt = postedAtEpochMs
-                        .takeIf { it in 1..now + MAX_FUTURE_SKEW_MILLIS }
-                        ?.let(Instant::ofEpochMilli)
-                        ?: capturedAt
-                    appContainer.transactionIngestor.ingest(
-                        rawText = extracted.text,
+            val extracted = NotificationTextExtractor.extract(notification)
+            if (extracted.oversizedCount > 0) recordSafely("NOTIFICATION_TEXT_TOO_LONG")
+            if (extracted.messages.isEmpty() && extracted.oversizedCount == 0) {
+                recordSafely("NOTIFICATION_TEXT_EMPTY")
+            }
+            val config = appContainer.database.configDao().get()
+            for (message in extracted.messages) {
+                val eventMillis = sequenceOf(message.timestampEpochMs, notification.`when`, postedAtEpochMs)
+                    .filterNotNull()
+                    .firstOrNull { it in 1..now + MAX_FUTURE_SKEW_MILLIS }
+                    ?: now
+                val identity = "$notificationKey|$eventMillis"
+                if (!replayCache.shouldProcess(
+                        packageName, message.text, SystemClock.elapsedRealtime(), identity,
+                    )
+                ) continue
+                try {
+                    val result = appContainer.transactionIngestor.ingest(
+                        rawText = message.text,
                         context = ParseContext(
                             sourcePackage = packageName,
                             sourceLabel = label,
-                            institution = label,
-                            captureTime = capturedAt,
-                            eventTime = eventAt,
+                            // Messages/Truecaller identifies the display source, not the bank.
+                            institution = null,
+                            captureTime = Instant.ofEpochMilli(now),
+                            eventTime = Instant.ofEpochMilli(eventMillis),
                             origin = ParseOrigin.NOTIFICATION,
                             sourceIsKnown = true,
                             defaultCurrency = config?.currency ?: "INR",
+                            notificationIdentity = identity,
                         ),
                     )
+                    if (result == IngestionResult.FailedSafely) {
+                        replayCache.forget(packageName, message.text, identity)
+                    }
+                } catch (cancellation: CancellationException) {
+                    replayCache.forget(packageName, message.text, identity)
+                    throw cancellation
+                } catch (_: RuntimeException) {
+                    replayCache.forget(packageName, message.text, identity)
+                    recordSafely("NOTIFICATION_CAPTURE_FAILED")
                 }
             }
         } catch (cancellation: CancellationException) {
@@ -112,7 +126,8 @@ class TransactionNotificationListener : NotificationListenerService() {
      */
     private suspend fun discoverActiveNotificationSources() {
         try {
-            activeNotifications.orEmpty()
+            val notifications = activeNotifications.orEmpty()
+            notifications
                 .asSequence()
                 .mapNotNull(StatusBarNotification::getPackageName)
                 .filterNot { it == applicationContext.packageName }
@@ -124,6 +139,9 @@ class TransactionNotificationListener : NotificationListenerService() {
                         seenAtEpochMs = System.currentTimeMillis(),
                     )
                 }
+            // Recover alerts posted during a temporary listener disconnect. Older visible alerts
+            // are only discovered, avoiding a one-time reimport of pre-upgrade legacy fingerprints.
+            notifications.filter { it.postTime >= serviceStartedAtEpochMs }.forEach(::onNotificationPosted)
         } catch (_: RuntimeException) {
             recordSafely("NOTIFICATION_SOURCE_DISCOVERY_FAILED")
         }

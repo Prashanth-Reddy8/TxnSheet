@@ -12,6 +12,32 @@ Google Sheets integration and does not request internet or SMS permissions.
 - Supports search, debit/credit/review filters, manual entry, category rules, and edits.
 - Encrypts temporary review text with Android Keystore and expires it automatically.
 - Provides light, dark, and system-aware native Android UI.
+- Follows the Personal Finance Master workbook with budgets, twelve-month cash flow, EMI/debt
+  records and payoff estimates, goals, configurable assumptions, and an action list.
+- Breaks down spending by category, merchant, payment method, and account, with month navigation.
+- Distinguishes self-transfers, ATM withdrawals, refunds, card purchases, and card bill settlements.
+- Imports a chosen `.xlsx` locally with a preview and keeps every original tab in the workbook viewer.
+
+## Bring your workbook into the app
+
+Save the `.xlsx` on your phone, then open **Settings → Import Excel file**. Review the record counts
+and tap **Import**. Completed Transactions, budgets with concrete dates, filled EMI Tracker rows,
+and Goals become app records. All original populated cells, including legacy tabs, remain under
+**Workbook data**. Formula cells without cached results remain formulas in that reference view;
+the native app calculates its own dashboard from local records. Re-imports keep existing app plans
+and matching records. Edited workbook transaction facts may become new records; overlapping
+notification/import records should be checked in Activity.
+
+## Capture accuracy
+
+Only complete supported alerts enter totals automatically. Bundled MessagingStyle messages are
+processed separately, pending/failed alerts are excluded, and ambiguous amounts or direction go
+to Review. Merchant mappings prefer explicit owner rules. Unknown merchants remain uncategorized.
+Android may withhold, redact, or delay notifications; no application can guarantee every payment
+is observed. Diagnostics show actual local outcomes, not an invented accuracy percentage.
+
+The app displays cash and payoff estimates from your inputs; it does not fetch bank balances.
+No personal workbook values are included in the distributed APK.
 
 ## Install
 

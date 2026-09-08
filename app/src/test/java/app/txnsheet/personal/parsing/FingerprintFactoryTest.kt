@@ -14,6 +14,25 @@ class FingerprintFactoryTest {
     private val baseTime = Instant.parse("2026-08-19T08:00:10Z")
 
     @Test
+    fun `notification identity remains stable after reconnect without collapsing separate payments`() {
+        val draft = draft(referenceId = null)
+        val first = FingerprintFactory.create(draft, "bank.app", "INR 100 paid", baseTime, "key|1000")
+        val replay = FingerprintFactory.create(draft, "bank.app", "INR 100 paid", baseTime.plusSeconds(600), "key|1000")
+        val nextPayment = FingerprintFactory.create(draft, "bank.app", "INR 100 paid", baseTime, "key|2000")
+        assertEquals(first, replay)
+        assertNotEquals(first, nextPayment)
+    }
+
+    @Test
+    fun `reference fingerprints retain existing compatibility when notification identity is supplied`() {
+        val draft = draft(referenceId = "UTR-123456")
+        assertEquals(
+            FingerprintFactory.create(draft, "bank.app", "INR 100 paid", baseTime),
+            FingerprintFactory.create(draft, "bank.app", "INR 100 paid", baseTime, "key|1000"),
+        )
+    }
+
+    @Test
     fun `reference fingerprint is stable across source text and capture time`() {
         val draft = draft(referenceId = "UTR-123456")
 

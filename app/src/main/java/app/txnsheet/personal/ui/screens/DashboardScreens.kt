@@ -285,13 +285,18 @@ private fun HomeHealthBanner(
 fun ActivityScreen(
     state: TxnSheetUiState,
     onOpenTransaction: (String) -> Unit,
+    initialQuery: String = "",
+    onMonth: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     var filter by remember { mutableStateOf(ActivityFilter.ALL) }
-    var searchVisible by remember { mutableStateOf(false) }
-    val filtered = remember(state.transactions, query, filter) {
+    var searchVisible by remember(initialQuery) { mutableStateOf(initialQuery.isNotBlank()) }
+    var allMonths by remember { mutableStateOf(false) }
+    val selectedMonth = java.time.YearMonth.parse(state.selectedMonth)
+    val filtered = remember(state.transactions, query, filter, selectedMonth, allMonths) {
         state.transactions.filter { transaction ->
+            val inPeriod = allMonths || java.time.YearMonth.from(Instant.ofEpochMilli(transaction.eventTimeEpochMs).atZone(ZoneId.of(state.config.timezone))) == selectedMonth
             val matchesFilter = when (filter) {
                 ActivityFilter.ALL -> true
                 ActivityFilter.DEBITS -> transaction.direction == "DEBIT"
@@ -305,7 +310,7 @@ fun ActivityScreen(
                 transaction.method,
                 transaction.notes,
             ).joinToString(" ")
-            matchesFilter && (query.isBlank() || haystack.contains(query.trim(), ignoreCase = true))
+            inPeriod && matchesFilter && (query.isBlank() || haystack.contains(query.trim(), ignoreCase = true))
         }
     }
     val grouped = remember(filtered, state.config.timezone) {
@@ -328,6 +333,10 @@ fun ActivityScreen(
                         Icon(Icons.Outlined.Search, contentDescription = if (searchVisible) "Hide search" else "Search transactions")
                     }
                 }
+                Text("${filtered.size} records · merchant, category, method and account", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                if (!allMonths) MonthControl(selectedMonth, { onMonth(it.toString()) })
+                FilterChip(allMonths, { allMonths = !allMonths }, label = { Text("All months") })
                 AnimatedVisibility(searchVisible) {
                     OutlinedTextField(
                         value = query,

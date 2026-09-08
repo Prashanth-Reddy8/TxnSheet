@@ -20,6 +20,79 @@ class TransactionParserTest {
     )
 
     @Test
+    fun `negated and future debit alerts do not create completed transactions`() {
+        listOf(
+            "INR 100 not debited from A/c XX1234 via UPI to SHOP. Ref ABC123456.",
+            "INR 100 will be debited from A/c XX1234 via UPI to SHOP. Ref ABC123456.",
+        ).forEach { text ->
+            val result = TransactionParser.parse(text, notificationContext)
+            assertEquals(ParseAction.IGNORE_INFO, result.action)
+            assertNull(result.draft)
+            assertTrue(ParseIssue.PAYMENT_NOT_COMPLETED in result.issues)
+        }
+    }
+
+    @Test
+    fun `failed or pending payment with debit language requires review instead of altering totals`() {
+        listOf("failed", "pending", "declined").forEach { status ->
+            val result = TransactionParser.parse(
+                "Payment of INR 100.00 $status. Debited from A/c XX1234 via UPI to SHOP. Ref ABC123456.",
+                notificationContext,
+            )
+            assertEquals(ParseAction.REVIEW, result.action)
+            assertTrue(ParseIssue.PAYMENT_NOT_COMPLETED in result.issues)
+        }
+    }
+
+    @Test
+    fun `compact Truecaller amount and account card stays in review with unknown direction`() {
+        val result = TransactionParser.parse(
+            "Mr Example Person Account xx9899 ₹1",
+            notificationContext.copy(sourcePackage = "com.truecaller", sourceLabel = "Truecaller"),
+        )
+        assertEquals(ParseAction.REVIEW, result.action)
+        assertEquals(100L, result.draft?.amountMinor)
+        assertNull(result.draft?.direction)
+        assertTrue(ParseIssue.MISSING_DIRECTION in result.issues)
+    }
+
+    @Test
+    fun `balance preceding payment does not swallow the payment amount`() {
+        val result = TransactionParser.parse(
+            "Bal INR 500. INR 100 paid via UPI to SHOP. Ref ABC123456.",
+            notificationContext,
+        )
+        assertEquals(ParseAction.AUTO_SYNC, result.action)
+        assertEquals(10_000L, result.draft?.amountMinor)
+        assertEquals(50_000L, result.draft?.balanceMinor)
+    }
+
+    @Test
+    fun `received amount with suffix currency has a credit direction`() {
+        val result = TransactionParser.parse(
+            "Received 500 INR via UPI from RAVI. Ref ABC123456.", notificationContext,
+        )
+        assertEquals(ParseAction.AUTO_SYNC, result.action)
+        assertEquals(Direction.CREDIT, result.draft?.direction)
+    }
+
+    @Test
+    fun `merchant and VPA names keep their interior punctuation`() {
+        val result = TransactionParser.parse(
+            "INR 100 paid via UPI to fresh.shop@okaxis. Ref ABC123456.", notificationContext,
+        )
+        assertEquals("fresh.shop@okaxis", result.draft?.counterparty)
+    }
+
+    @Test
+    fun `account destination is not labelled as a merchant`() {
+        val result = TransactionParser.parse(
+            "INR 100 sent to account XX1234 via UPI. Ref ABC123456.", notificationContext,
+        )
+        assertNull(result.draft?.counterparty)
+    }
+
+    @Test
     fun `known UPI debit extracts normalized fields and auto syncs`() {
         val result = TransactionParser.parse(
             "INR 1,249.00 debited from A/c XX1234 via UPI to ABC STORE " +
@@ -61,7 +134,42 @@ class TransactionParserTest {
             assertEquals("9899", accountLast4)
             assertEquals("624400604307", referenceId)
             assertEquals("Mr PALVAI PRASHANTH", counterparty)
+            assertEquals("Kotak Mahindra Bank", institution)
         }
+    }
+
+    @Test
+    fun `messaging app is not used as bank when alert has no institution evidence`() {
+        val result = TransactionParser.parse(
+            "INR 100 paid via UPI to Sample Shop. Ref ABC123456.",
+            notificationContext.copy(sourceLabel = "Messages", institution = "Messages"),
+        )
+        assertEquals(ParseAction.AUTO_SYNC, result.action)
+        assertNull(result.draft?.institution)
+        assertEquals("Messages", result.draft?.sourceLabel)
+    }
+
+    @Test
+    fun `known bank sender alias is recognized while conflicting bank names stay unknown`() {
+        val known = TransactionParser.parse(
+            "VM-HDFCBK INR 100 paid via UPI to Sample Shop. Ref ABC123456.",
+            notificationContext.copy(institution = null),
+        )
+        val conflicting = TransactionParser.parse(
+            "Kotak Bank transfer to ICICI Bank. INR 100 sent via UPI. Ref ABC123456.",
+            notificationContext.copy(institution = null),
+        )
+        assertEquals("HDFC Bank", known.draft?.institution)
+        assertNull(conflicting.draft?.institution)
+    }
+
+    @Test
+    fun `explicit caller bank is preserved independently of the notification source`() {
+        val result = TransactionParser.parse(
+            "INR 100 paid via UPI to Sample Shop. Ref ABC123456.",
+            notificationContext.copy(sourceLabel = "Truecaller", institution = "Example Bank"),
+        )
+        assertEquals("Example Bank", result.draft?.institution)
     }
 
     @Test

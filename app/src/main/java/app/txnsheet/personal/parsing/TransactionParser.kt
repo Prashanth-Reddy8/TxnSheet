@@ -51,6 +51,16 @@ object TransactionParser {
         """\b(?:OFFER|PRE[\s-]{0,1}APPROVED|APPLY\s{1,3}NOW|SALE|COUPON)\b""",
         RegexOption.IGNORE_CASE,
     )
+    private val negatedOrFutureAction = Regex(
+        """\b(?:NOT|NEVER)\s{1,3}(?:BEEN\s{1,3})?(?:DEBITED|CREDITED|PAID|SENT|CHARGED)\b|""" +
+            """\bWILL\s{1,3}(?:BE\s{1,3})?(?:DEBITED|CREDITED|PAID|SENT|CHARGED)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val incompletePayment = Regex(
+        """\b(?:PAYMENT|TRANSACTION|TRANSFER)\b[^;]{0,72}\b(?:FAILED|DECLINED|PENDING|CANCELLED|CANCELED|UNSUCCESSFUL|INITIATED|PROCESSING)\b|""" +
+            """\b(?:FAILED|DECLINED|PENDING|CANCELLED|CANCELED|UNSUCCESSFUL)\s{1,3}(?:PAYMENT|TRANSACTION|TRANSFER)\b""",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val debitAction = Regex(
         """\b(?:DEBITED|PAID|SENT|SPENT|WITHDRAWN|WITHDRAWAL|CHARGED)\b|""" +
@@ -60,7 +70,7 @@ object TransactionParser {
     private val creditAction = Regex(
         """\b(?:CREDITED|REFUNDED|DEPOSITED)\b|\bCASH\s{1,3}DEPOSIT\b|""" +
             """\b(?:TRANSFERRED|TRANSFER)\s{1,3}FROM\b|""" +
-            """\bRECEIVED(?=\s{1,3}(?:FROM\b|VIA\b|₹|INR\b|RS\.?))""",
+            """\bRECEIVED(?=\s{1,3}(?:FROM\b|VIA\b|₹|INR\b|RS\.?|$AMOUNT_TOKEN\s{1,3}(?:INR|RUPEES?)\b))""",
         RegexOption.IGNORE_CASE,
     )
     private val genericCompletedAction = Regex(
@@ -113,13 +123,17 @@ object TransactionParser {
 
     private const val COUNTERPARTY_VALUE = "([A-Z0-9=+@-][A-Z0-9 &.'/_=+@-]{0,62}?)"
     private const val COUNTERPARTY_END =
-        "(?=\\s{1,3}(?:ON|VIA|USING|REF|REFERENCE|UTR|TXN|TRANSACTION|FROM|TO|A/C|ACCT|ACCOUNT|CARD)\\b|[.,;]|$)"
+        "(?=\\s{1,3}(?:ON|VIA|USING|REF|REFERENCE|UTR|TXN|TRANSACTION|FROM|TO|A/C|ACCT|ACCOUNT|CARD|AVAIL|AVAILABLE|BALANCE)\\b|[.,;](?=\\s|$)|$)"
     private val debitCounterpartyPattern = Regex(
         """\b(?:TO|AT)\s{1,4}$COUNTERPARTY_VALUE$COUNTERPARTY_END""",
         RegexOption.IGNORE_CASE,
     )
     private val creditCounterpartyPattern = Regex(
         """\bFROM\s{1,4}$COUNTERPARTY_VALUE$COUNTERPARTY_END""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val accountCounterparty = Regex(
+        """^(?:(?:YOUR|OWN)\s{1,3})?(?:A/C|ACCT|ACCOUNT|CARD)\b|^(?:X{1,12}|\*{1,12})[0-9]{4}\b""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -150,6 +164,10 @@ object TransactionParser {
         if (promotionalMarker.containsMatchIn(normalizedText) && !hasCompletedAction) {
             return ignored(ParseAction.IGNORE_PROMO, ParseIssue.PROMOTIONAL_MESSAGE)
         }
+        if (negatedOrFutureAction.containsMatchIn(normalizedText)) {
+            return ignored(ParseAction.IGNORE_INFO, ParseIssue.PAYMENT_NOT_COMPLETED)
+        }
+        val hasIncompletePayment = incompletePayment.containsMatchIn(normalizedText)
 
         val amounts = extractAmounts(normalizedText)
         val balanceCandidates = amounts.filter(AmountCandidate::isBalance)
@@ -212,6 +230,7 @@ object TransactionParser {
         if (multipleAmounts) issues += ParseIssue.MULTIPLE_TRANSACTION_AMOUNTS
         if (malformedAmount) issues += ParseIssue.MALFORMED_AMOUNT
         if (implausibleAmount) issues += ParseIssue.IMPLAUSIBLE_AMOUNT
+        if (hasIncompletePayment) issues += ParseIssue.PAYMENT_NOT_COMPLETED
 
         val validForAutomaticSync =
             selectedAmount?.minorUnits?.let { it > 0L } == true &&
@@ -219,12 +238,16 @@ object TransactionParser {
                 !conflictingDirections &&
                 !multipleAmounts &&
                 !malformedAmount &&
-                !implausibleAmount
+                !implausibleAmount &&
+                !hasIncompletePayment
         val manualPreviewRequired = context.origin != ParseOrigin.NOTIFICATION
+        val incompleteFinancialCard = context.sourceIsKnown && selectedAmount != null &&
+            accountLast4 != null && direction == null && !hasIncompletePayment
 
         val action = when {
             manualPreviewRequired && (selectedAmount != null || hasCompletedAction) -> ParseAction.REVIEW
             confidence >= 0.85 && validForAutomaticSync -> ParseAction.AUTO_SYNC
+            incompleteFinancialCard -> ParseAction.REVIEW
             confidence >= 0.60 -> ParseAction.REVIEW
             else -> ParseAction.IGNORE_INFO
         }
@@ -254,7 +277,7 @@ object TransactionParser {
             direction = direction,
             method = method,
             counterparty = counterparty,
-            institution = context.institution,
+            institution = InstitutionResolver.resolve(normalizedText, context.institution),
             accountLast4 = accountLast4,
             referenceId = referenceId,
             eventTime = context.eventTime,
@@ -300,7 +323,14 @@ object TransactionParser {
                 val minorUnits = parseMinorUnits(amountGroup.value) ?: continue
                 val prefixStart = max(0, amountGroup.range.first - 36)
                 val precedingText = text.substring(prefixStart, amountGroup.range.first)
-                val isBalance = balanceMarker.containsMatchIn(precedingText)
+                // A balance label only applies until a subsequent amount/action. A short SMS
+                // like "Bal INR 500. INR 100 paid" must not lose the second (payment) amount.
+                val lastBalance = balanceMarker.findAll(precedingText).lastOrNull()
+                val afterBalance = lastBalance?.let { precedingText.substring(it.range.last + 1) }
+                val isBalance = afterBalance != null &&
+                    afterBalance.none(Char::isDigit) &&
+                    !debitAction.containsMatchIn(afterBalance) &&
+                    !creditAction.containsMatchIn(afterBalance)
                 val existing = candidatesByRange[amountGroup.range]
                 candidatesByRange[amountGroup.range] = AmountCandidate(
                     minorUnits = minorUnits,
@@ -346,22 +376,20 @@ object TransactionParser {
     }
 
     private fun extractCounterparty(text: String, direction: Direction?): String? {
-        val match = when (direction) {
-            Direction.CREDIT -> creditCounterpartyPattern.find(text)
-            Direction.DEBIT -> debitCounterpartyPattern.find(text)
-            null -> debitCounterpartyPattern.find(text) ?: creditCounterpartyPattern.find(text)
-        } ?: return null
-
-        return match.groupValues[1]
-            .trim()
-            .trimEnd('.', ',', ';')
-            .takeIf(String::isNotBlank)
+        val matches = when (direction) {
+            Direction.CREDIT -> creditCounterpartyPattern.findAll(text)
+            Direction.DEBIT -> debitCounterpartyPattern.findAll(text)
+            null -> debitCounterpartyPattern.findAll(text) + creditCounterpartyPattern.findAll(text)
+        }
+        return matches.map { it.groupValues[1].trim().trimEnd('.', ',', ';') }
+            .firstOrNull { it.isNotBlank() && !accountCounterparty.containsMatchIn(it) }
     }
 
     private fun parserRuleFor(method: TransactionMethod): String = when (method) {
         TransactionMethod.UPI -> "upi_generic@1.0.0"
-        TransactionMethod.CARD -> "card_generic@1.0.0"
+        TransactionMethod.CARD, TransactionMethod.CREDIT_CARD, TransactionMethod.DEBIT_CARD -> "card_generic@1.0.0"
         TransactionMethod.BANK_TRANSFER -> "bank_transfer_generic@1.0.0"
+        TransactionMethod.AUTO_DEBIT -> "auto_debit_generic@1.0.0"
         TransactionMethod.ATM -> "atm_cash@1.0.0"
         TransactionMethod.CASH -> "cash_deposit@1.0.0"
         TransactionMethod.FEE -> "fee_generic@1.0.0"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 - 2026-09-08
+
+- New workbook-based flow: visual Home overview, spending/account breakdowns, Plan, Activity and Review.
+- Local monthly budgets, twelve-month cash forecast, EMI/debt records and payoff comparisons, goals and assumptions.
+- Previewed Excel import, all-tab workbook viewer, and additive Room v1-to-v2 upgrade.
+- Correctable transfer/refund/card-settlement classification, essential spending, amount/direction/payment method, and reusable merchant rules.
+- Separate bundled SMS extraction, stable notification identity, conservative failed/pending handling, merchant/bank detection and friendly diagnostics.
+
 ## 2.0.0 - 2026-09-04
 
 - Replaced the Google Sheets workflow with a private, on-device finance dashboard.

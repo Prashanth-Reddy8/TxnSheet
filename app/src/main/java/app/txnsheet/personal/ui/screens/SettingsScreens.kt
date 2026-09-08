@@ -91,6 +91,8 @@ fun SettingsScreen(
     onOpenRules: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onImportWorkbook: () -> Unit,
+    onOpenWorkbook: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -108,6 +110,10 @@ fun SettingsScreen(
             Spacer(Modifier.height(TxnSpacing.lg))
 
             ReadinessCard(state)
+            Spacer(Modifier.height(TxnSpacing.section))
+            SectionLabel("Your workbook")
+            SettingRow(title = "Import Excel file", supportingText = "Preview and import an .xlsx from your phone", icon = Icons.Outlined.TableChart, onClick = onImportWorkbook)
+            SettingRow(title = "Workbook data", supportingText = state.finance.workbook?.let { "All imported tabs, including legacy records" } ?: "No workbook imported yet", icon = Icons.Outlined.DataObject, onClick = onOpenWorkbook)
             Spacer(Modifier.height(TxnSpacing.section))
             SectionLabel("Capture")
             SettingRow(
@@ -330,7 +336,7 @@ private fun RuleRow(rule: CategoryRuleEntity, onDelete: (String) -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(rule.category, style = MaterialTheme.typography.titleMedium)
             Text(
-                "Contains “${rule.normalizedTerm}”",
+                "${if (rule.matchType == "EXACT") "Matches" else "Contains"} “${rule.normalizedTerm}”",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -555,7 +561,8 @@ private fun DiagnosticRow(event: DiagnosticEventEntity, zoneId: String) {
         )
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(event.code, style = MaterialTheme.typography.titleSmall.copy(fontFamily = TxnMono))
+            Text(diagnosticTitle(event.code), style = MaterialTheme.typography.titleSmall)
+            Text(event.code, style = MaterialTheme.typography.labelSmall.copy(fontFamily = TxnMono), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 "${event.component} · ${formatDateTime(event.createdAtEpochMs, zoneId)}",
                 style = MaterialTheme.typography.bodySmall,
@@ -567,6 +574,20 @@ private fun DiagnosticRow(event: DiagnosticEventEntity, zoneId: String) {
             }
         }
     }
+}
+
+private fun diagnosticTitle(code: String): String = when {
+    code == "CAPTURE_SAVED" -> "Transaction saved"
+    code == "CAPTURE_NEEDS_REVIEW" -> "Transaction needs your confirmation"
+    code.contains("DUPLICATE") -> "Repeated alert skipped"
+    code.contains("MISSING_DIRECTION") -> "Could not confirm money in or out"
+    code.contains("MISSING_AMOUNT") -> "Could not confirm the payment amount"
+    code.contains("SECURITY") -> "Security or OTP message ignored"
+    code.contains("PROMO") -> "Promotional message ignored"
+    code.contains("NOTIFICATION_TEXT_EMPTY") -> "Notification did not expose readable text"
+    code.contains("IGNORE_INFO") -> "No completed transaction found"
+    code.contains("FAILED") -> "Capture needs attention"
+    else -> "Capture event"
 }
 
 private fun extractSpreadsheetId(value: String): String {

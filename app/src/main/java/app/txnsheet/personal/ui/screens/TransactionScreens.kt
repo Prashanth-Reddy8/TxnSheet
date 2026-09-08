@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.txnsheet.personal.data.local.TransactionEntity
+import app.txnsheet.personal.data.local.TransactionAnnotationEntity
 import app.txnsheet.personal.ui.components.BannerTone
 import app.txnsheet.personal.ui.components.HealthBanner
 import app.txnsheet.personal.ui.components.MoneyText
@@ -87,6 +88,9 @@ data class TransactionEdits(
     val counterparty: String?,
     val category: String,
     val notes: String,
+    val amountMinor: Long,
+    val direction: String,
+    val method: String,
 )
 
 data class ManualTransactionSubmission(
@@ -313,6 +317,7 @@ private fun StructuredEntryForm(
         singleLine = true,
         label = { Text("Category") },
     )
+    CategorySuggestions(category, onCategoryChange)
     Spacer(Modifier.height(10.dp))
     OutlinedTextField(
         value = notes,
@@ -343,6 +348,9 @@ fun TransactionDetailScreen(
     onBack: () -> Unit,
     onSave: (TransactionEdits) -> Unit,
     onDelete: () -> Unit,
+    annotation: TransactionAnnotationEntity? = null,
+    onSaveAnnotation: (TransactionAnnotationEntity) -> Unit = {},
+    onRememberMerchant: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (transaction == null) {
@@ -361,6 +369,10 @@ fun TransactionDetailScreen(
     var category by rememberSaveable(transaction.transactionId) { mutableStateOf(transaction.category) }
     var notes by rememberSaveable(transaction.transactionId) { mutableStateOf(transaction.notes) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var editAmount by rememberSaveable(transaction.transactionId) { mutableStateOf(transaction.amountMinor?.let { BigDecimal.valueOf(it).movePointLeft(2).toPlainString() }.orEmpty()) }
+    var editDirection by rememberSaveable(transaction.transactionId) { mutableStateOf(transaction.direction ?: "DEBIT") }
+    var editMethod by rememberSaveable(transaction.transactionId) { mutableStateOf(transaction.method) }
+    val validEditAmount = editAmount.toMinorUnitsOrNull()?.takeIf { it in 1..999_999_999_999L }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -381,12 +393,16 @@ fun TransactionDetailScreen(
             {
                 StickyActionDock(
                     primaryLabel = "Save changes",
+                    primaryEnabled = validEditAmount != null,
                     onPrimary = {
                         onSave(
                             TransactionEdits(
                                 counterparty = counterparty.trim().ifBlank { null },
                                 category = category.trim().ifBlank { "Uncategorized" },
                                 notes = notes.trim(),
+                                amountMinor = requireNotNull(validEditAmount),
+                                direction = editDirection,
+                                method = editMethod,
                             ),
                         )
                         editing = false
@@ -396,6 +412,9 @@ fun TransactionDetailScreen(
                         counterparty = transaction.counterparty.orEmpty()
                         category = transaction.category
                         notes = transaction.notes
+                        editAmount = transaction.amountMinor?.let { BigDecimal.valueOf(it).movePointLeft(2).toPlainString() }.orEmpty()
+                        editDirection = transaction.direction ?: "DEBIT"
+                        editMethod = transaction.method
                         editing = false
                     },
                     working = working,
@@ -431,9 +450,37 @@ fun TransactionDetailScreen(
                 }
                 Spacer(Modifier.height(28.dp))
 
+                if (!editing) {
+                    Text("HOW THIS AFFECTS YOUR TOTALS", style = MaterialTheme.typography.labelMedium)
+                    Text("Choose the purpose of this payment. Transfers and card bill settlements are kept separate from spending.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(null to "From alert", "EXPENSE" to "Expense", "INCOME" to "Income", "TRANSFER" to "Self-transfer", "REFUND" to "Refund", "CARD_PAYMENT" to "Card bill").forEach { (value, label) ->
+                            FilterChip(annotation?.flowType == value, { onSaveAnnotation((annotation ?: TransactionAnnotationEntity(transaction.transactionId)).copy(flowType = value)) }, label = { Text(label) })
+                        }
+                    }
+                    Text("Essential spending?", style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(null to "Not classified", true to "Essential", false to "Discretionary").forEach { (value, label) ->
+                            FilterChip(annotation?.essential == value, { onSaveAnnotation((annotation ?: TransactionAnnotationEntity(transaction.transactionId)).copy(essential = value)) }, label = { Text(label) })
+                        }
+                    }
+                    if (!transaction.counterparty.isNullOrBlank() && transaction.category != "Uncategorized") {
+                        TextButton(onClick = onRememberMerchant, enabled = !working) { Text("Use ${transaction.category} for this merchant next time") }
+                    }
+                    Spacer(Modifier.height(20.dp))
+                }
                 if (editing) {
                     Text("EDIT LEDGER FIELDS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(editAmount, { editAmount = it.take(18) }, label = { Text("Amount (${transaction.currency})") }, isError = validEditAmount == null, keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(editDirection == "DEBIT", { editDirection = "DEBIT" }, label = { Text("Money out") })
+                        FilterChip(editDirection == "CREDIT", { editDirection = "CREDIT" }, label = { Text("Money in") })
+                    }
+                    Text("Payment method", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        METHODS.forEach { candidate -> FilterChip(editMethod == candidate, { editMethod = candidate }, label = { Text(candidate.displayValue()) }) }
+                    }
                     OutlinedTextField(
                         value = counterparty,
                         onValueChange = { counterparty = it.take(100) },
@@ -449,6 +496,7 @@ fun TransactionDetailScreen(
                         label = { Text("Category") },
                         singleLine = true,
                     )
+                    CategorySuggestions(category) { category = it }
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = notes,
@@ -471,6 +519,7 @@ fun TransactionDetailScreen(
                         DetailValue("Reference", transaction.referenceId ?: "Not detected")
                         DetailValue("Captured from", transaction.sourceLabel ?: transaction.sourceApp)
                         DetailValue("Parser confidence", "${(transaction.confidence * 100).toInt()}%")
+                        Text("Confidence is a rule score, not a measured accuracy guarantee.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 10.dp))
                     }
                     DetailSection("Ledger record") {
                         DetailValue("Status", app.txnsheet.personal.ui.statusLabel(transaction.status))
@@ -630,6 +679,7 @@ fun ReviewDetailScreen(
                     label = { Text("Category") },
                     singleLine = true,
                 )
+                CategorySuggestions(category) { category = it }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = notes,
@@ -732,4 +782,13 @@ private fun reviewReason(transaction: TransactionEntity): String = when {
 }
 
 private const val MAX_MANUAL_CHARS = 8_000
-private val METHODS = listOf("UPI", "CARD", "BANK_TRANSFER", "ATM", "CASH", "FEE", "OTHER")
+
+@Composable
+private fun CategorySuggestions(category: String, onSelect: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        app.txnsheet.personal.domain.MerchantCategories.categories.forEach { candidate ->
+            FilterChip(category == candidate, { onSelect(candidate) }, label = { Text(candidate) })
+        }
+    }
+}
+private val METHODS = listOf("UPI", "DEBIT_CARD", "CREDIT_CARD", "CARD", "BANK_TRANSFER", "AUTO_DEBIT", "ATM", "CASH", "FEE", "OTHER")

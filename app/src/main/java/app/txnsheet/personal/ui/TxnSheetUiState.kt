@@ -5,6 +5,9 @@ import app.txnsheet.personal.data.local.CategoryRuleEntity
 import app.txnsheet.personal.data.local.DiagnosticEventEntity
 import app.txnsheet.personal.data.local.SourceAppEntity
 import app.txnsheet.personal.data.local.TransactionEntity
+import app.txnsheet.personal.data.local.FinanceData
+import app.txnsheet.personal.data.repository.WorkbookPreview
+import java.time.YearMonth
 
 data class TxnSheetUiState(
     val loading: Boolean = true,
@@ -17,6 +20,9 @@ data class TxnSheetUiState(
     val actionInProgress: Boolean = false,
     val transientMessage: String? = null,
     val reviewSourceById: Map<String, String?> = emptyMap(),
+    val finance: FinanceData = FinanceData(),
+    val selectedMonth: String = YearMonth.now().toString(),
+    val workbookPreview: WorkbookPreview? = null,
 ) {
     val reviewTransactions: List<TransactionEntity>
         get() = transactions.filter { it.status == "REVIEW" }

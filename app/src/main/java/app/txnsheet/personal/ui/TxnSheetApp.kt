@@ -1,6 +1,8 @@
 package app.txnsheet.personal.ui
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PieChartOutline
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Visibility
@@ -60,6 +63,11 @@ import androidx.navigation.navArgument
 import app.txnsheet.personal.ui.screens.ActivityScreen
 import app.txnsheet.personal.ui.screens.DiagnosticsScreen
 import app.txnsheet.personal.ui.screens.HomeScreen
+import app.txnsheet.personal.ui.screens.FinanceHomeScreen
+import app.txnsheet.personal.ui.screens.PlanningScreen
+import app.txnsheet.personal.ui.screens.WorkbookScreen
+import app.txnsheet.personal.ui.screens.WorkbookImportDialog
+import java.time.YearMonth
 import app.txnsheet.personal.ui.screens.ManualImportScreen
 import app.txnsheet.personal.ui.screens.OnboardingScreen
 import app.txnsheet.personal.ui.screens.PrivacyScreen
@@ -83,6 +91,9 @@ fun TxnSheetRoot(
     val snackbarHostState = remember { SnackbarHostState() }
     var showNotificationDisclosure by rememberSaveable { mutableStateOf(false) }
     var pendingManualText by rememberSaveable { mutableStateOf(sharedText.orEmpty()) }
+    val workbookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::previewWorkbook)
+    }
 
     LaunchedEffect(viewModel, navController) {
         viewModel.effects.collect { effect ->
@@ -125,6 +136,7 @@ fun TxnSheetRoot(
                 manualInitialText = pendingManualText,
                 onClearManualText = { pendingManualText = "" },
                 onRequestNotificationAccess = { showNotificationDisclosure = true },
+                onImportWorkbook = { workbookPicker.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) },
             )
         }
     }
@@ -138,6 +150,9 @@ fun TxnSheetRoot(
             },
         )
     }
+    state.workbookPreview?.let { preview ->
+        WorkbookImportDialog(preview, state.actionInProgress, viewModel::importWorkbook, viewModel::dismissWorkbookPreview)
+    }
 }
 
 @Composable
@@ -149,7 +164,9 @@ private fun MainNavigation(
     manualInitialText: String,
     onClearManualText: () -> Unit,
     onRequestNotificationAccess: () -> Unit,
+    onImportWorkbook: () -> Unit,
 ) {
+    var merchantQuery by rememberSaveable { mutableStateOf("") }
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val topLevel = TopDestination.entries.firstOrNull { it.route == route }
@@ -212,18 +229,31 @@ private fun MainNavigation(
             },
         ) {
             composable(Routes.HOME) {
-                HomeScreen(
+                FinanceHomeScreen(
                     state = state,
-                    onOpenActivity = { navController.navigateTopLevel(Routes.ACTIVITY) },
-                    onOpenReview = { navController.navigateTopLevel(Routes.REVIEW) },
-                    onOpenTransaction = { id -> openTransaction(navController, state, id) },
-                    onOpenNotificationAccess = onRequestNotificationAccess,
+                    onMonth = viewModel::selectMonth,
+                    onActivity = { merchantQuery = ""; navController.navigateTopLevel(Routes.ACTIVITY) },
+                    onMerchant = { merchant -> merchantQuery = merchant; navController.navigateTopLevel(Routes.ACTIVITY) },
+                    onPlan = { navController.navigateTopLevel(Routes.PLAN) },
+                    onReview = { navController.navigateTopLevel(Routes.REVIEW) },
+                    onSettings = { navController.navigateTopLevel(Routes.SETTINGS) },
+                    onTransaction = { id -> openTransaction(navController, state, id) },
                 )
             }
             composable(Routes.ACTIVITY) {
                 ActivityScreen(
                     state = state,
                     onOpenTransaction = { id -> openTransaction(navController, state, id) },
+                    initialQuery = merchantQuery,
+                    onMonth = viewModel::selectMonth,
+                )
+            }
+            composable(Routes.PLAN) {
+                PlanningScreen(
+                    transactions = state.transactions, finance = state.finance,
+                    month = YearMonth.parse(state.selectedMonth), zoneId = state.config.timezone, currency = state.config.currency,
+                    onSaveBudget = viewModel::saveBudget, onSaveDebt = viewModel::saveDebt, onDeleteDebt = viewModel::deleteDebt,
+                    onSaveGoal = viewModel::saveGoal, onDeleteGoal = viewModel::deleteGoal, onSavePreferences = viewModel::savePreferences,
                 )
             }
             composable(Routes.REVIEW) {
@@ -239,6 +269,8 @@ private fun MainNavigation(
                     onOpenRules = { navController.navigate(Routes.RULES) },
                     onOpenPrivacy = { navController.navigate(Routes.PRIVACY) },
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                    onImportWorkbook = onImportWorkbook,
+                    onOpenWorkbook = { navController.navigate(Routes.WORKBOOK) },
                 )
             }
             composable(Routes.MANUAL) {
@@ -267,6 +299,9 @@ private fun MainNavigation(
                     onBack = { navController.popBackStack() },
                     onSave = { edits -> viewModel.saveTransactionEdits(id, edits) },
                     onDelete = { viewModel.deleteLocalTransaction(id) },
+                    annotation = state.finance.annotations.firstOrNull { it.transactionId == id },
+                    onSaveAnnotation = viewModel::saveAnnotation,
+                    onRememberMerchant = { viewModel.rememberMerchant(id) },
                 )
             }
             composable(
@@ -317,6 +352,9 @@ private fun MainNavigation(
                     onBack = { navController.popBackStack() },
                 )
             }
+            composable(Routes.WORKBOOK) {
+                WorkbookScreen(state.finance.workbook, onBack = { navController.popBackStack() }, onImport = onImportWorkbook)
+            }
         }
     }
 }
@@ -352,6 +390,7 @@ private fun openTransaction(navController: NavHostController, state: TxnSheetUiS
 private enum class TopDestination(val route: String, val label: String, val icon: ImageVector) {
     HOME(Routes.HOME, "Home", Icons.Outlined.Home),
     ACTIVITY(Routes.ACTIVITY, "Activity", Icons.Outlined.ReceiptLong),
+    PLAN(Routes.PLAN, "Plan", Icons.Outlined.PieChartOutline),
     REVIEW(Routes.REVIEW, "Review", Icons.Outlined.Visibility),
     SETTINGS(Routes.SETTINGS, "Settings", Icons.Outlined.Settings),
 }
@@ -359,6 +398,8 @@ private enum class TopDestination(val route: String, val label: String, val icon
 private object Routes {
     const val HOME = "home"
     const val ACTIVITY = "activity"
+    const val PLAN = "plan"
+    const val WORKBOOK = "workbook"
     const val REVIEW = "review"
     const val SETTINGS = "settings"
     const val MANUAL = "manual"
